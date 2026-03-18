@@ -357,6 +357,26 @@ export default function ProductDashboard() {
       .slice(0, 15);
   }, [rows]);
 
+  // ── CHART 9 data: All Tide product columns — count + % of All Applied Cases ──
+  const allProductsData = useMemo(() => {
+    const totalApplied = rows.reduce((s, r) => s + (Number(r["Tide (All applied cases)"]) || 0), 0);
+    const cols = [
+      { product: "All Applied",      col: "Tide (All applied cases)" },
+      { product: "Correct Ref Code", col: "Tide OB(with correct ref. code)" },
+      { product: "UPI Done",         col: "Tide OB (UPI - BC011+QRPPVV01)" },
+      { product: "OB with PP",       col: "Tide OB with PP" },
+      { product: "PPI",              col: "Tide - PPI" },
+      { product: "Insurance",        col: "Tide Insurance" },
+      { product: "MSME",             col: "Tide MSME" },
+      { product: "Incorrect Ref",    col: "Tide - incorrect referral code" },
+    ];
+    return cols.map(({ product, col }) => {
+      const sales = rows.reduce((s, r) => s + (Number(r[col]) || 0), 0);
+      const pct = totalApplied > 0 ? Math.round((sales / totalApplied) * 100) : 0;
+      return { product, col, sales, pct };
+    }).filter((d) => d.sales > 0);
+  }, [rows]);
+
   const tooltipStyle = { backgroundColor: ct.tooltipBg, color: ct.text, border: "none" };
 
   return (
@@ -742,36 +762,59 @@ export default function ProductDashboard() {
           </Box>
         </ChartCard>
 
-        {/* CHART 8 — All products overview (existing) */}
+        {/* CHART 9 — All Tide Products Breakdown with % */}
         <ChartCard
-          title="All Product Groups Overview"
-          subtitle="Auto-detected product groups from sheet"
+          title="All Tide Products — Volume & Share"
+          subtitle="Every Tide product column: total count + % share of all applied cases. Click a bar to drill down."
         >
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart
-              data={Object.entries(productMeta.product_groups || {})
-                .map(([g, meta]) => ({
-                  group: g,
-                  sales: (meta.columns || []).reduce((s, c) => {
-                    return s + rows.reduce((rs, r) => rs + (Number(r[c]) || 0), 0);
-                  }, 0)
-                }))
-                .filter((d) => d.sales > 0)
-                .sort((a, b) => b.sales - a.sales)}
-              onClick={(e) => {
-                if (!e?.activePayload) return;
-                const grp = e.activePayload[0]?.payload?.group;
-                const cols = productMeta.product_groups?.[grp]?.columns || [];
-                openDrill(`Product Group: ${grp}`, rows.filter((r) => cols.some((c) => (Number(r[c]) || 0) > 0)));
-              }}
-            >
-              <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" />
-              <XAxis dataKey="group" stroke={ct.text} />
-              <YAxis stroke={ct.text} />
-              <Tooltip contentStyle={tooltipStyle} />
-              <Bar dataKey="sales" fill="#14b8a6" radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }} />
-            </BarChart>
-          </ResponsiveContainer>
+          <Box sx={{ position: "relative" }}>
+            <MuiTooltip title="View full table for all Tide products">
+              <IconButton
+                size="small"
+                onClick={() => openDrill("All Tide Products — All Employees", rows.filter((r) => allProductsData.some((d) => (Number(r[d.col]) || 0) > 0)), allProductsData.map((d) => d.col))}
+                sx={{ position: "absolute", top: -8, right: 0, zIndex: 1, opacity: 0.7, "&:hover": { opacity: 1 } }}
+              >
+                <TableChartIcon fontSize="small" />
+              </IconButton>
+            </MuiTooltip>
+            <ResponsiveContainer width="100%" height={380}>
+              <ComposedChart
+                data={allProductsData}
+                margin={{ top: 20, right: 50, left: 10, bottom: 80 }}
+                onClick={(e) => {
+                  if (!e?.activePayload) return;
+                  const d = e.activePayload[0]?.payload;
+                  if (!d) return;
+                  openDrill(`${d.product} — Employee Breakdown`, rows.filter((r) => (Number(r[d.col]) || 0) > 0).sort((a, b) => (Number(b[d.col]) || 0) - (Number(a[d.col]) || 0)), [d.col]);
+                }}
+              >
+                <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" />
+                <XAxis
+                  dataKey="product"
+                  stroke={ct.text}
+                  tick={{ fontSize: 10 }}
+                  interval={0}
+                  angle={-35}
+                  textAnchor="end"
+                  height={90}
+                />
+                <YAxis yAxisId="left" stroke={ct.text} allowDecimals={false} label={{ value: "Count", angle: -90, position: "insideLeft", fill: ct.text, fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" stroke="#a78bfa" unit="%" domain={[0, 100]} tickFormatter={(v) => `${v}%`} label={{ value: "% of Applied", angle: 90, position: "insideRight", fill: "#a78bfa", fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(val, name) => name === "% of Applied" ? [`${val}%`, name] : [val, name]}
+                  labelFormatter={(label) => `Product: ${label}`}
+                />
+                <Legend verticalAlign="top" />
+                <Bar yAxisId="left" dataKey="sales" name="Total Count" radius={[6, 6, 0, 0]} style={{ cursor: "pointer" }} label={{ position: "top", fontSize: 11, fill: ct.text, formatter: (v) => v > 0 ? v : "" }}>
+                  {allProductsData.map((d, i) => (
+                    <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                  ))}
+                </Bar>
+                <Line yAxisId="right" type="monotone" dataKey="pct" name="% of Applied" stroke="#a78bfa" strokeWidth={2.5} dot={{ r: 5, fill: "#a78bfa", strokeWidth: 2, stroke: "#fff" }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </Box>
         </ChartCard>
 
       </Box>
