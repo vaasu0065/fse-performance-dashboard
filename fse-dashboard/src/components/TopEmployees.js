@@ -9,53 +9,54 @@ import {
   ResponsiveContainer
 } from "recharts";
 
-function TopEmployees({ data }) {
+function TopEmployees({ data, theme }) {
 
-  // -----------------------------
-  // PREPARE EMPLOYEE DATA
-  // -----------------------------
-
-  const employeeData = data.map(item => ({
-    name: item["Name"] || "Unknown",
-    meetings: item["Total_Meetings_Calc"] || 0
-  }));
-
-  // -----------------------------
-  // SORT BY MEETINGS
-  // -----------------------------
-
-  const topEmployees = employeeData
-    .sort((a, b) => b.meetings - a.meetings)
+  const sorted = [...data]
+    .sort((a, b) => (b.Total_Points || 0) - (a.Total_Points || 0))
     .slice(0, 10);
+
+  const chartData = sorted.map((item) => ({
+    name: item["Name"],
+    Points: item["Total_Points"] || 0
+  }));
 
   return (
 
-    <div style={{ marginBottom: "40px" }}>
+    <div
+      style={{
+        padding: "20px",
+        background: theme.card,
+        borderRadius: "10px"
+      }}
+    >
 
-      <h2>Top 10 Employees</h2>
+      <h2 style={{ color: theme.text }}>
+        Top 10 Employees (Points)
+      </h2>
 
-      <ResponsiveContainer width="100%" height={400}>
+      <ResponsiveContainer width="100%" height={300}>
 
-        <BarChart
-          data={topEmployees}
-          layout="vertical"
-        >
+        <BarChart data={chartData}>
 
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid stroke={theme.grid} />
 
-          <XAxis type="number" />
-
-          <YAxis
+          <XAxis
             dataKey="name"
-            type="category"
-            width={150}
+            stroke={theme.text}
           />
 
-          <Tooltip />
+          <YAxis stroke={theme.text} />
+
+          <Tooltip
+            contentStyle={{
+              backgroundColor: theme.tooltipBg,
+              color: theme.text
+            }}
+          />
 
           <Bar
-            dataKey="meetings"
-            fill="#28a745"
+            dataKey="Points"
+            fill="#2ecc71"
           />
 
         </BarChart>

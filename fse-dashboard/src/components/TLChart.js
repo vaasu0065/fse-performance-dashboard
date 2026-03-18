@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -11,37 +11,29 @@ import {
 
 function TLChart({ data, theme }) {
 
-  // -----------------------------
-  // GROUP DATA BY TL
-  // -----------------------------
-
-  const tlData = {};
-
-  data.forEach(item => {
-
-    const tl = item["TL"] || "Unknown";
-
-    const meetings = item["Total_Meetings_Calc"] || 0;
-
-    if (!tlData[tl]) {
-      tlData[tl] = 0;
-    }
-
-    tlData[tl] += meetings;
-
-  });
-
-  const chartData = Object.keys(tlData).map(tl => ({
-    TL: tl,
-    Meetings: tlData[tl]
-  }));
-
+  const chartData = useMemo(() => {
+    const tlData = {};
+    data.forEach((item) => {
+      const tl = item["TL"] || "Unknown";
+      tlData[tl] = (tlData[tl] || 0) + (item["Total_Points"] || 0);
+    });
+    return Object.keys(tlData).map((tl) => ({ TL: tl, Points: tlData[tl] }));
+  }, [data]);
 
   return (
 
-    <div style={{ marginBottom: "40px" }}>
+    <div
+      style={{
+        padding: "20px",
+        background: theme.card,
+        borderRadius: "10px",
+        boxShadow: "0 2px 10px rgba(0,0,0,0.1)"
+      }}
+    >
 
-      <h2 style={{ color: theme.text }}>Team Leader Performance</h2>
+      <h2 style={{ color: theme.text }}>
+        Team Leader Performance (Points)
+      </h2>
 
       <ResponsiveContainer width="100%" height={300}>
 
@@ -49,18 +41,28 @@ function TLChart({ data, theme }) {
 
           <CartesianGrid stroke={theme.grid} strokeDasharray="3 3" />
 
-          <XAxis dataKey="TL" stroke={theme.text} />
+          <XAxis
+            dataKey="TL"
+            stroke={theme.text}
+          />
 
-          <YAxis stroke={theme.text} />
+          <YAxis
+            stroke={theme.text}
+          />
 
           <Tooltip
             contentStyle={{
               backgroundColor: theme.tooltipBg,
+              border: "none",
               color: theme.text
             }}
           />
 
-          <Bar dataKey="Meetings" fill="#2c7be5" />
+          <Bar
+            dataKey="Points"
+            fill="#2ecc71"
+            radius={[5, 5, 0, 0]}
+          />
 
         </BarChart>
 

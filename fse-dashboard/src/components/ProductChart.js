@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   BarChart,
   Bar,
@@ -9,57 +9,45 @@ import {
   ResponsiveContainer
 } from "recharts";
 
-function ProductChart({ data }) {
+function ProductChart({ data, theme, productMeta }) {
+  const columns =
+    productMeta?.product_columns && productMeta.product_columns.length > 0
+      ? productMeta.product_columns
+      : [];
 
-  // -----------------------------
-  // PRODUCT COLUMNS
-  // -----------------------------
-  const products = [
-    "Tide OB",
-    "Tide OB with PP",
-    "Tide Insurance",
-    "Tide MSME",
-    "Vehicle Insurance",
-    "Aditya Birla",
-    "Airtel Payments Bank",
-    "Hero FinCorp"
-  ];
-
-  // -----------------------------
-  // CALCULATE TOTAL SALES
-  // -----------------------------
-  const productData = products.map(product => {
-
-    let total = 0;
-
-    data.forEach(row => {
-      total += Number(row[product] || 0);
-    });
-
-    return {
-      product: product,
-      sales: total
-    };
-
-  });
+  const productData = useMemo(() => {
+    return columns
+      .map((col) => {
+        let total = 0;
+        data.forEach((row) => { total += Number(row?.[col] || 0); });
+        return { product: col, sales: total };
+      })
+      .sort((a, b) => b.sales - a.sales)
+      .slice(0, 12);
+  }, [data, columns]);
 
   return (
 
     <div style={{ marginBottom: "40px" }}>
 
-      <h2>Product Sales Performance</h2>
+      <h2 style={{ color: theme?.text }}>Product Sales (Top Columns)</h2>
 
       <ResponsiveContainer width="100%" height={350}>
 
         <BarChart data={productData}>
 
-          <CartesianGrid strokeDasharray="3 3" />
+          <CartesianGrid stroke={theme?.grid} strokeDasharray="3 3" />
 
-          <XAxis dataKey="product" />
+          <XAxis dataKey="product" stroke={theme?.text} />
 
-          <YAxis />
+          <YAxis stroke={theme?.text} />
 
-          <Tooltip />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: theme?.tooltipBg,
+              color: theme?.text
+            }}
+          />
 
           <Bar dataKey="sales" fill="#6f42c1" />
 

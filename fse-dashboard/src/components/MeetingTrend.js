@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -11,37 +11,26 @@ import {
 
 function MeetingTrend({ data, theme }) {
 
-  // Example aggregation (modify if needed)
-  const trend = {};
+  const chartData = useMemo(() => {
+    const trend = {};
 
-  data.forEach(item => {
+    // Detect date keys once from first row
+    const dateKeys = data.length > 0
+      ? Object.keys(data[0]).filter(col => !Number.isNaN(new Date(col).getTime()))
+      : [];
 
-    Object.keys(item).forEach(col => {
-
-      const date = new Date(col);
-
-      if (!isNaN(date)) {
-
-        const day = col;
-
+    data.forEach(item => {
+      dateKeys.forEach(col => {
         const meetings = Number(item[col]) || 0;
-
-        if (!trend[day]) {
-          trend[day] = 0;
-        }
-
-        trend[day] += meetings;
-
-      }
-
+        if (meetings === 0) return;
+        trend[col] = (trend[col] || 0) + meetings;
+      });
     });
 
-  });
-
-  const chartData = Object.keys(trend).map(day => ({
-    date: day,
-    meetings: trend[day]
-  }));
+    return Object.keys(trend)
+      .sort()
+      .map(day => ({ date: day, meetings: trend[day] }));
+  }, [data]);
 
 
   return (

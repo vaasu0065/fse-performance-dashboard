@@ -26,7 +26,7 @@ def load_clean_data():
 
     df = convert_data_types(df, numeric_cols, date_cols)
 
-    df = feature_engineering(df, numeric_cols, date_cols)
+    df, *_ = feature_engineering(df, numeric_cols, date_cols)
 
     return df
 

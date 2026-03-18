@@ -1,8 +1,15 @@
-import axios from "axios";
-
-const API_URL = "http://127.0.0.1:8000/data";
+const BASE = "http://127.0.0.1:8001";
 
 export const fetchData = async (month) => {
-  const res = await fetch(`http://127.0.0.1:8000/data?month=${month}`);
+  const res = await fetch(`${BASE}/data?month=${month || ""}`);
+  return res.json();
+};
+
+export const updateRow = async (email, column, value) => {
+  const res = await fetch(`${BASE}/update-row`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, column, value }),
+  });
   return res.json();
 };

@@ -26,7 +26,7 @@ df = handle_missing_values(df, numeric_cols, text_cols)
 df = convert_data_types(df, numeric_cols, date_cols)
 
 # feature engineering
-df = feature_engineering(df, numeric_cols, date_cols)
+df, *_ = feature_engineering(df, numeric_cols, date_cols)
 
 print("\nFinal Data Preview:")
 print(df.head())

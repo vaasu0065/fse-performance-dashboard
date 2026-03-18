@@ -65,7 +65,8 @@ function KPIBox({ title, value }) {
 
         <Typography
           variant="h4"
-          style={{ color: "#1976d2", marginTop: "10px" }}
+          color="primary"
+          sx={{ mt: 1 }}
         >
           {value}
         </Typography>

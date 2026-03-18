@@ -5,17 +5,20 @@ function MonthSlicer({ data, selectedMonth, setSelectedMonth }) {
 
   const getMonths = () => {
     if (!data || data.length === 0) return [];
-    const months = new Set();
+    const monthMap = new Map();
     data.forEach(item => {
       Object.keys(item).forEach(col => {
         const date = new Date(col);
         if (!isNaN(date)) {
-          const monthName = date.toLocaleString("default", { month: "long" });
-          months.add(monthName);
+          const label = date.toLocaleString("default", { month: "long", year: "numeric" });
+          const key = date.getFullYear() * 100 + (date.getMonth() + 1);
+          if (!monthMap.has(label)) monthMap.set(label, key);
         }
       });
     });
-    return [...months];
+    return Array.from(monthMap.entries())
+      .sort((a, b) => a[1] - b[1])
+      .map(([label]) => label);
   };
 
   return (
