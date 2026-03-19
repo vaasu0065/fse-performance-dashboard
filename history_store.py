@@ -33,10 +33,10 @@ def save_history(df: pd.DataFrame):
 def merge_with_history(current_df: pd.DataFrame) -> pd.DataFrame:
     """
     Merge current sheet data with stored historical data.
-    - Identifies employees by 'Name' + 'Email ID' (or just 'Name' as fallback).
-    - Adds any date columns from history that are missing in current sheet.
-    - Existing employees get their historical date columns filled in.
-    - New employees from history that no longer appear in the sheet are kept.
+    - connect_sheet.py already combines FSE + Old working into current_df.
+    - This function additionally preserves any date columns that were in a
+      previous run but have since been removed from the live sheets.
+    - Identifies employees by Email ID (or Name as fallback).
     """
     history_df = load_history()
 

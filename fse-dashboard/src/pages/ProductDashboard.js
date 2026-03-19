@@ -112,16 +112,40 @@ export default function ProductDashboard() {
     return () => clearInterval(iv);
   }, []);
 
-  // ── filtered rows ──────────────────────────────────────────────────────────
+  // ── Detect available months from _month tag ──────────────────────────────
+  const monthOptions = useMemo(() => {
+    const seen = new Set();
+    const result = [];
+    (Array.isArray(raw) ? raw : []).forEach((row) => {
+      const m = row["_month"];
+      if (m && !seen.has(m)) { seen.add(m); result.push(m); }
+    });
+    // Sort chronologically using month name parsing
+    result.sort((a, b) => {
+      const parse = (s) => { const [mon, yr] = s.split(" "); return parseInt(yr) * 100 + new Date(`${mon} 1`).getMonth(); };
+      return parse(a) - parse(b);
+    });
+    return result;
+  }, [raw]);
+
+  // ── Auto-select latest month on first load ─────────────────────────────────
+  useEffect(() => {
+    if (selectedMonth || monthOptions.length === 0) return;
+    setSelectedMonth(monthOptions[monthOptions.length - 1]);
+  }, [monthOptions]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── filtered rows — filter by _month tag, then by other filters ───────────
   const rows = useMemo(() => {
     return (Array.isArray(raw) ? raw : []).filter((row) => {
+      // Month filter: use _month tag which is set per-sheet on the backend
+      if (selectedMonth && row["_month"] !== selectedMonth) return false;
       if (filters.tl && row["TL"] !== filters.tl) return false;
       if (filters.employee && row["Name"] !== filters.employee) return false;
       if (filters.status && row["Employee status"] !== filters.status) return false;
       if (filters.employment && row["Employment type"] !== filters.employment) return false;
       return true;
     });
-  }, [raw, filters]);
+  }, [raw, filters, selectedMonth]);
 
   // // ── CHART 1: Tide OB vs OB with PP by TL (pending per TL) ─────────────────
   // const tlPendingData = useMemo(() => {
@@ -392,6 +416,7 @@ export default function ProductDashboard() {
         setSelectedMonth={setSelectedMonth}
         filters={filters}
         setFilters={setFilters}
+        monthOptions={monthOptions}
       />
 
       <TideKPI rows={rows} />

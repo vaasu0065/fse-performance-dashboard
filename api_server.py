@@ -4,6 +4,7 @@ from pydantic import BaseModel
 from typing import Any
 import pandas as pd
 import time
+import threading
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
@@ -34,7 +35,8 @@ app.add_middleware(
 cached_data = None
 last_update = 0
 
-CACHE_DURATION = 300  # seconds (5 minutes — pipeline is expensive, sheet doesn't change every 10s)
+# Force reload on startup so combined FSE + Old working data is picked up
+CACHE_DURATION = 300  # seconds (5 minutes)
 
 
 # -----------------------------
@@ -90,19 +92,15 @@ def get_clean_data():
 # -----------------------------
 # CACHE HANDLER
 # -----------------------------
-def get_cached_data():
+_refresh_lock = threading.Lock()
 
+def _refresh_cache():
+    """Run the full pipeline and update the cache. Thread-safe."""
     global cached_data, last_update
-
-    current_time = time.time()
-
-    if cached_data is None or (current_time - last_update) > CACHE_DURATION:
-
-        df, daily_trend, monthly_meetings, tl_performance, total_meetings, product_columns, product_totals, product_groups = get_clean_data()
-
-        if isinstance(df, pd.DataFrame) and df.empty:
-            return {}
-
+    df, daily_trend, monthly_meetings, tl_performance, total_meetings, product_columns, product_totals, product_groups = get_clean_data()
+    if isinstance(df, pd.DataFrame) and df.empty:
+        return
+    with _refresh_lock:
         cached_data = {
             "raw": df.to_dict(orient="records"),
             "meeting_trend": daily_trend,
@@ -113,10 +111,22 @@ def get_cached_data():
             "product_totals": product_totals,
             "product_groups": product_groups
         }
+        last_update = time.time()
+    print(f"[Cache] Refreshed — {len(cached_data['raw'])} rows")
 
-        last_update = current_time
 
-    return cached_data
+def get_cached_data():
+    global cached_data, last_update
+    now = time.time()
+    stale = cached_data is None or (now - last_update) > CACHE_DURATION
+    if stale:
+        if cached_data is None:
+            # First load — must block until we have data
+            _refresh_cache()
+        else:
+            # Stale but we have data — refresh in background, return old data instantly
+            threading.Thread(target=_refresh_cache, daemon=True).start()
+    return cached_data or {}
 
 
 # -----------------------------
@@ -184,3 +194,13 @@ def update_row(req: UpdateRequest):
 
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+
+# -----------------------------
+# RUN SERVER
+# -----------------------------
+if __name__ == "__main__":
+    import uvicorn
+    # Warm cache in background so first request is instant
+    threading.Thread(target=get_cached_data, daemon=True).start()
+    uvicorn.run("api_server:app", host="127.0.0.1", port=8001, reload=False)

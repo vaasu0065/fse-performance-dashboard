@@ -92,6 +92,23 @@ function Dashboard() {
     return map;
   }, [data]);
 
+  // Auto-select the latest month when data first loads
+  useEffect(() => {
+    if (selectedMonth) return; // user already picked something
+    const entries = Object.values(dateKeyToMonthLabel);
+    if (entries.length === 0) return;
+    // Find the latest month label by sorting the numeric key (YYYYMM)
+    const monthMap = new Map();
+    Object.keys(dateKeyToMonthLabel).forEach((key) => {
+      const d = new Date(key);
+      const label = dateKeyToMonthLabel[key];
+      const numeric = d.getFullYear() * 100 + (d.getMonth() + 1);
+      if (!monthMap.has(label) || numeric > monthMap.get(label)) monthMap.set(label, numeric);
+    });
+    const latest = [...monthMap.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    if (latest) setSelectedMonth(latest);
+  }, [dateKeyToMonthLabel]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const filteredData = useMemo(() => {
     const rows = Array.isArray(data) ? data : [];
 

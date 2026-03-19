@@ -41,9 +41,11 @@ export default function FiltersBar({
   selectedMonth,
   setSelectedMonth,
   filters,
-  setFilters
+  setFilters,
+  monthOptions: monthOptionsProp   // optional override (e.g. from _month tag)
 }) {
-  const monthOptions = useMemo(() => getMonthOptions(data), [data]);
+  const monthOptionsFromData = useMemo(() => getMonthOptions(data), [data]);
+  const monthOptions = monthOptionsProp || monthOptionsFromData;
   const tlOptions = useMemo(() => uniqueValues(data, "TL"), [data]);
   const employeeOptions = useMemo(() => uniqueValues(data, "Name"), [data]);
   const statusOptions = useMemo(() => uniqueValues(data, "Employee status"), [data]);
@@ -71,7 +73,7 @@ export default function FiltersBar({
               label="Month"
               onChange={(e) => setSelectedMonth(e.target.value)}
             >
-              <MenuItem value="">All</MenuItem>
+              <MenuItem value="">All Months</MenuItem>
               {monthOptions.map((m) => (
                 <MenuItem key={m} value={m}>
                   {m}

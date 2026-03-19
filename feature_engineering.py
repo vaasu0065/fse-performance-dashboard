@@ -11,6 +11,9 @@ def feature_engineering(df, numeric_cols, date_cols):
     product_totals = {}
     product_groups = {}
 
+    # Defragment upfront — combined sheet has many columns
+    df = df.copy()
+
     # -----------------------------
     # DETECT MEETING DATE COLUMNS
     # -----------------------------
@@ -32,28 +35,21 @@ def feature_engineering(df, numeric_cols, date_cols):
         df["Total_Meetings_Calc"] = df[meeting_columns].sum(axis=1)
 
     # -----------------------------
-    # NORMALIZE MEETING DATA
+    # NORMALIZE MEETING DATA (vectorized — no iterrows)
     # -----------------------------
 
-    records = []
+    meeting_df = pd.DataFrame()
 
-    for _, row in df.iterrows():
-
-        for col in meeting_columns:
-
-            date = pd.to_datetime(col, errors="coerce")
-
-            if pd.notnull(date):
-
-                records.append({
-                    "Name": row.get("Name"),
-                    "TL": row.get("TL"),
-                    "Date": date,
-                    "Month": date.strftime("%B"),
-                    "Meetings": float(row.get(col, 0))
-                })
-
-    meeting_df = pd.DataFrame(records)
+    if meeting_columns:
+        # Melt date columns into long format — much faster than iterrows
+        id_vars = [c for c in ["Name", "TL"] if c in df.columns]
+        melted = df[id_vars + meeting_columns].melt(
+            id_vars=id_vars, var_name="col", value_name="Meetings"
+        )
+        melted["Date"] = pd.to_datetime(melted["col"], errors="coerce")
+        melted = melted[melted["Date"].notna() & (melted["Meetings"] > 0)].copy()
+        melted["Month"] = melted["Date"].dt.strftime("%B")
+        meeting_df = melted.rename(columns={"col": "_date_col"})
 
     # -----------------------------
     # AGGREGATIONS
@@ -61,19 +57,19 @@ def feature_engineering(df, numeric_cols, date_cols):
 
     if not meeting_df.empty:
 
-        # Total meetings
         total_meetings = float(meeting_df["Meetings"].sum())
-
-        # Monthly meetings
         monthly_meetings = meeting_df.groupby("Month")["Meetings"].sum().to_dict()
 
-        # Daily trend
-        daily_trend = meeting_df.groupby("Date")["Meetings"].sum().reset_index()
-        daily_trend["Date"] = daily_trend["Date"].astype(str)
-        daily_trend = daily_trend.to_dict(orient="records")
+        daily_trend = (
+            meeting_df.groupby("Date")["Meetings"].sum()
+            .reset_index()
+            .assign(Date=lambda x: x["Date"].astype(str))
+            .to_dict(orient="records")
+        )
 
-        # TL performance
-        tl_performance = meeting_df.groupby("TL")["Meetings"].sum().to_dict()
+        tl_col = "TL" if "TL" in meeting_df.columns else None
+        if tl_col:
+            tl_performance = meeting_df.groupby(tl_col)["Meetings"].sum().to_dict()
     # -----------------------------
     # SMART PRODUCT DETECTION (AUTO)
     # -----------------------------
@@ -87,7 +83,9 @@ def feature_engineering(df, numeric_cols, date_cols):
             "Activity_Score",
             "Meetings_per_Active_Day",
             "Total_Product_Sales",
-            "Total active days"
+            "Total active days",
+            "_source",          # sheet source tag added by connect_sheet.py
+            "_month",           # month label tag added by connect_sheet.py
         ]
     )
 
@@ -134,24 +132,17 @@ def feature_engineering(df, numeric_cols, date_cols):
     # -----------------------------
 
     product_total_columns = []
+    new_cols_dict = {}
 
-    # keep legacy grouped totals too (so existing fields keep working)
     detected_products = {
         group: meta["columns"] for group, meta in product_groups.items() if group != "Other"
     }
 
     for product, cols in detected_products.items():
-
         if cols:
-
-            df[cols] = df[cols].apply(
-                pd.to_numeric, errors="coerce"
-            ).fillna(0)
-
+            df[cols] = df[cols].apply(pd.to_numeric, errors="coerce").fillna(0)
             new_col = f"{product}_Sales"
-
-            df[new_col] = df[cols].sum(axis=1)
-
+            new_cols_dict[new_col] = df[cols].sum(axis=1)
             product_total_columns.append(new_col)
 
     # -----------------------------
@@ -159,7 +150,11 @@ def feature_engineering(df, numeric_cols, date_cols):
     # -----------------------------
 
     if product_total_columns:
-        df["Total_Product_Sales"] = df[product_total_columns].sum(axis=1)
+        new_cols_dict["Total_Product_Sales"] = pd.DataFrame(new_cols_dict).sum(axis=1)
+
+    # Add all new columns at once to avoid fragmentation
+    if new_cols_dict:
+        df = pd.concat([df, pd.DataFrame(new_cols_dict, index=df.index)], axis=1)
 
     # -----------------------------
     # TOTAL POINTS CALCULATION
@@ -176,39 +171,26 @@ def feature_engineering(df, numeric_cols, date_cols):
         "Hero FinCorp": 1
     }
 
-    df["Total_Points"] = 0
-
+    total_points = pd.Series(0.0, index=df.index)
     for col, weight in points_formula.items():
-
         if col in df.columns:
-
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
+            total_points += df[col] * weight
 
-            df["Total_Points"] += df[col] * weight
-
-    # -----------------------------
-    # ACTIVITY SCORE
-    # -----------------------------
+    extra_cols = {"Total_Points": total_points}
 
     if "Total active days" in df.columns:
-
-        df["Total active days"] = pd.to_numeric(
-            df["Total active days"], errors="coerce"
-        ).fillna(0)
-
-        df["Activity_Score"] = df["Total active days"]
-
-    # -----------------------------
-    # MEETINGS PER ACTIVE DAY
-    # -----------------------------
+        df["Total active days"] = pd.to_numeric(df["Total active days"], errors="coerce").fillna(0)
+        extra_cols["Activity_Score"] = df["Total active days"]
 
     if "Total active days" in df.columns and "Total_Meetings_Calc" in df.columns:
-
-        df["Meetings_per_Active_Day"] = df.apply(
+        extra_cols["Meetings_per_Active_Day"] = df.apply(
             lambda x: x["Total_Meetings_Calc"] / x["Total active days"]
             if x["Total active days"] > 0 else 0,
             axis=1
         )
+
+    df = pd.concat([df, pd.DataFrame(extra_cols, index=df.index)], axis=1)
 
     return (
         df,

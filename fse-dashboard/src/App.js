@@ -45,11 +45,14 @@ function App() {
           position: "sticky",
           top: 0,
           zIndex: 1100,
-          bgcolor: "background.default",
+          bgcolor: "background.paper",
           borderBottom: "1px solid",
           borderColor: "divider",
           px: { xs: 2, md: 3 },
-          py: 1
+          py: 0.5,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between"
         }}
       >
         <Tabs
@@ -61,28 +64,11 @@ function App() {
           <Tab value="overview" label="Overview" />
           <Tab value="products" label="Products" />
         </Tabs>
-      </Box>
 
-      {/* THEME TOGGLE BUTTON */}
-
-      <Box
-        sx={{
-          position: "fixed",
-          top: 20,
-          right: 20,
-          zIndex: 1000
-        }}
-      >
-
-        <IconButton
-          onClick={toggleTheme}
-          color="inherit"
-        >
-
+        {/* THEME TOGGLE — inside nav so it's always visible */}
+        <IconButton onClick={toggleTheme} color="inherit" size="medium">
           {mode === "light" ? <DarkModeIcon /> : <LightModeIcon />}
-
         </IconButton>
-
       </Box>
 
       {page === "overview" ? <Dashboard /> : <ProductDashboard />}
