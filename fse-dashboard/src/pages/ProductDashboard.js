@@ -12,6 +12,7 @@ import {
 import { fetchData } from "../services/api";
 import FiltersBar from "../components/FiltersBar";
 import TideDrillTable from "../components/TideDrillTable";
+import MeetingTrend from "../components/MeetingTrend";
 
 const COLORS = ["#7c3aed", "#10b981", "#3b82f6", "#f59e0b", "#14b8a6", "#ec4899", "#0ea5e9", "#ef4444"];
 
@@ -400,6 +401,32 @@ export default function ProductDashboard() {
       return { product, col, sales, pct };
     }).filter((d) => d.sales > 0);
   }, [rows]);
+
+  // ── CHART 10 data: Tide Onboarding Conversion Rate by Month ─────────────
+  const conversionByMonthData = useMemo(() => {
+    const map = {};
+    (Array.isArray(raw) ? raw : []).forEach((r) => {
+      const month = r["_month"] || "Unknown";
+      if (!map[month]) map[month] = { month, applied: 0, obWithPP: 0 };
+      map[month].applied  += Number(r["Tide (All applied cases)"]) || 0;
+      map[month].obWithPP += Number(r["Tide OB with PP"]) || 0;
+    });
+    return Object.values(map)
+      .filter((d) => d.applied > 0)
+      .map((d) => ({
+        ...d,
+        rate: Math.round((d.obWithPP / d.applied) * 100),
+        pending: d.applied - d.obWithPP,
+      }))
+      .sort((a, b) => {
+        // Sort chronologically
+        const parse = (s) => {
+          const [mon, yr] = (s || "").split(" ");
+          return parseInt(yr || 0) * 100 + (new Date(`${mon} 1`).getMonth() + 1 || 0);
+        };
+        return parse(a.month) - parse(b.month);
+      });
+  }, [raw]);
 
   const tooltipStyle = { backgroundColor: ct.tooltipBg, color: ct.text, border: "none" };
 
@@ -842,6 +869,59 @@ export default function ProductDashboard() {
           </Box>
         </ChartCard>
 
+        {/* CHART 10 — Tide Onboarding Conversion Rate by Month */}
+        <ChartCard
+          title="Tide Onboarding Conversion Rate by Month"
+          subtitle="All Applied Cases vs OB with PP — conversion rate % across Jan, Feb, Mar. Shows how many applied cases got fully onboarded each month."
+        >
+          <Box sx={{ position: "relative" }}>
+            <MuiTooltip title="View full table for all months">
+              <IconButton
+                size="small"
+                onClick={() => openDrill(
+                  "Tide Conversion — All Months",
+                  (Array.isArray(raw) ? raw : []).filter((r) => (Number(r["Tide (All applied cases)"]) || 0) > 0),
+                  ["Tide (All applied cases)", "Tide OB with PP"]
+                )}
+                sx={{ position: "absolute", top: -8, right: 0, zIndex: 1, opacity: 0.7, "&:hover": { opacity: 1 } }}
+              >
+                <TableChartIcon fontSize="small" />
+              </IconButton>
+            </MuiTooltip>
+            <ResponsiveContainer width="100%" height={340}>
+              <ComposedChart data={conversionByMonthData} margin={{ top: 20, right: 50, left: 10, bottom: 10 }}>
+                <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" />
+                <XAxis dataKey="month" stroke={ct.text} tick={{ fontSize: 12, fontWeight: 600 }} />
+                <YAxis yAxisId="left" stroke={ct.text} allowDecimals={false}
+                  label={{ value: "Count", angle: -90, position: "insideLeft", fill: ct.text, fontSize: 11 }} />
+                <YAxis yAxisId="right" orientation="right" stroke="#10b981" unit="%" domain={[0, 100]}
+                  tickFormatter={(v) => `${v}%`}
+                  label={{ value: "Conv. Rate %", angle: 90, position: "insideRight", fill: "#10b981", fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(val, name) => name === "Conversion Rate %" ? [`${val}%`, name] : [val, name]}
+                  labelFormatter={(label) => `Month: ${label}`}
+                />
+                <Legend verticalAlign="top" />
+                <Bar yAxisId="left" dataKey="applied" name="All Applied Cases" fill="#7c3aed" radius={[4, 4, 0, 0]}
+                  label={{ position: "top", fontSize: 11, fill: ct.text, formatter: (v) => v > 0 ? v : "" }} />
+                <Bar yAxisId="left" dataKey="obWithPP" name="OB with PP (Onboarded)" fill="#10b981" radius={[4, 4, 0, 0]}
+                  label={{ position: "top", fontSize: 11, fill: ct.text, formatter: (v) => v > 0 ? v : "" }} />
+                <Bar yAxisId="left" dataKey="pending" name="Pending (Not Onboarded)" fill="#ef444466" radius={[4, 4, 0, 0]} />
+                <Line yAxisId="right" type="monotone" dataKey="rate" name="Conversion Rate %"
+                  stroke="#10b981" strokeWidth={3}
+                  dot={{ r: 7, fill: "#10b981", stroke: "#fff", strokeWidth: 2 }}
+                  label={{ position: "top", fontSize: 13, fontWeight: 700, fill: "#10b981", formatter: (v) => `${v}%` }} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </Box>
+        </ChartCard>
+
+      </Box>
+
+      {/* Meeting Trend — same as Overview page, filtered by current month/filters */}
+      <Box sx={{ mt: 3 }}>
+        <MeetingTrend data={rows} theme={ct} />
       </Box>
 
       <TideDrillTable

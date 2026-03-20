@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Button, Table, TableHead, TableRow, TableCell,
@@ -6,10 +6,8 @@ import {
 } from "@mui/material";
 import { updateRow } from "../services/api";
 
-// Identity / context columns always shown first — mirrors Google Sheet left side
 const IDENTITY_COLS = ["Name", "TL", "Employee status", "Offer letter status", "Current month Status"];
 
-// Default editable cols used when no override is passed
 const DEFAULT_EDITABLE = [
   "Tide OB", "Tide OB with PP", "Tide Insurance", "Tide MSME",
   "Tide (All applied cases)", "Tide OB(with correct ref. code)",
@@ -18,21 +16,30 @@ const DEFAULT_EDITABLE = [
 ];
 
 export default function TideDrillTable({ open, onClose, title, rows, editableCols, extraCols }) {
-  // editableCols — which columns are numeric/editable (graph-specific)
-  // extraCols    — additional read-only columns to show (optional)
   const activeCols = editableCols || DEFAULT_EDITABLE;
   const displayCols = [...IDENTITY_COLS, ...(extraCols || []), ...activeCols];
 
+  // Local copy of rows so we can update values immediately after save
+  const [localRows, setLocalRows] = useState([]);
   const [editing, setEditing] = useState({});
   const [saving, setSaving] = useState({});
   const [saved, setSaved] = useState({});
   const [error, setError] = useState({});
 
+  // Sync local rows whenever the dialog opens with new data
+  useEffect(() => {
+    if (open) {
+      setLocalRows(rows.map((r) => ({ ...r })));
+      setEditing({});
+      setSaved({});
+      setError({});
+    }
+  }, [open, rows]);
+
   const key = (i, col) => `${i}_${col}`;
 
-  const handleEdit = (i, col, val) => {
+  const handleEdit = (i, col, val) =>
     setEditing((p) => ({ ...p, [key(i, col)]: val }));
-  };
 
   const handleSave = async (i, col, row) => {
     const k = key(i, col);
@@ -43,6 +50,12 @@ export default function TideDrillTable({ open, onClose, title, rows, editableCol
     try {
       const res = await updateRow(row["Email ID"], col, Number(val));
       if (res.success) {
+        // ── Update the local table row immediately ──────────────────────────
+        setLocalRows((prev) => {
+          const next = [...prev];
+          next[i] = { ...next[i], [col]: Number(val) };
+          return next;
+        });
         setSaved((p) => ({ ...p, [k]: true }));
         setTimeout(() => setSaved((p) => ({ ...p, [k]: false })), 2000);
         setEditing((p) => { const n = { ...p }; delete n[k]; return n; });
@@ -59,7 +72,7 @@ export default function TideDrillTable({ open, onClose, title, rows, editableCol
     <Dialog open={open} onClose={onClose} maxWidth="xl" fullWidth>
       <DialogTitle>{title}</DialogTitle>
       <DialogContent sx={{ overflowX: "auto" }}>
-        {rows.length === 0 ? (
+        {localRows.length === 0 ? (
           <Typography sx={{ p: 2 }}>No records found.</Typography>
         ) : (
           <Table size="small" stickyHeader>
@@ -77,7 +90,7 @@ export default function TideDrillTable({ open, onClose, title, rows, editableCol
               </TableRow>
             </TableHead>
             <TableBody>
-              {rows.map((row, i) => (
+              {localRows.map((row, i) => (
                 <TableRow key={i} hover>
                   <TableCell sx={{ color: "text.secondary", fontSize: 12 }}>{i + 1}</TableCell>
                   {displayCols.map((col) => {
@@ -134,7 +147,7 @@ export default function TideDrillTable({ open, onClose, title, rows, editableCol
       </DialogContent>
       <DialogActions>
         <Typography variant="caption" color="text.secondary" sx={{ flex: 1, pl: 1 }}>
-          {rows.length} record{rows.length !== 1 ? "s" : ""} · Click any highlighted cell to edit and sync to Google Sheet
+          {localRows.length} record{localRows.length !== 1 ? "s" : ""} · Click any highlighted cell to edit and sync to Google Sheet
         </Typography>
         <Button onClick={onClose}>Close</Button>
       </DialogActions>
