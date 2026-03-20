@@ -12,11 +12,13 @@ const DEFAULT_EDITABLE = [
   "Tide OB", "Tide OB with PP", "Tide Insurance", "Tide MSME",
   "Tide (All applied cases)", "Tide OB(with correct ref. code)",
   "Tide OB (UPI - BC011+QRPPVV01)", "Tide - PPI",
-  "Tide - incorrect referral code", "Tide"
+  "Tide - incorrect referral code", "Tide",
+  "Tide OB with PP + 5K QR Load + 4 Txns"
 ];
 
-export default function TideDrillTable({ open, onClose, title, rows, editableCols, extraCols }) {
-  const activeCols = editableCols || DEFAULT_EDITABLE;
+export default function TideDrillTable({ open, onClose, title, rows, editableCols, extraCols, dynamicCols }) {
+  // Priority: explicit editableCols > dynamicCols from parent > DEFAULT_EDITABLE fallback
+  const activeCols = editableCols || dynamicCols || DEFAULT_EDITABLE;
   const displayCols = [...IDENTITY_COLS, ...(extraCols || []), ...activeCols];
 
   // Local copy of rows so we can update values immediately after save

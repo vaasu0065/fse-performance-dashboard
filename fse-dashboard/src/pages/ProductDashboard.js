@@ -1,15 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
-  Box, Card, CardContent, Typography, useTheme, Grid, Chip, IconButton, Tooltip as MuiTooltip
+  Box, Card, CardContent, Typography, useTheme, Chip, IconButton, Tooltip as MuiTooltip,
+  Collapse, Button, Divider, Dialog, DialogTitle, DialogContent,
+  Table, TableHead, TableRow, TableCell, TableBody, TextField, CircularProgress
 } from "@mui/material";
 import TableChartIcon from "@mui/icons-material/TableChart";
+import ExpandMoreIcon from "@mui/icons-material/ExpandMore";
+import ExpandLessIcon from "@mui/icons-material/ExpandLess";
+import FullscreenIcon from "@mui/icons-material/Fullscreen";
+import FullscreenExitIcon from "@mui/icons-material/FullscreenExit";
+import ZoomInIcon from "@mui/icons-material/ZoomIn";
+import ZoomOutIcon from "@mui/icons-material/ZoomOut";
 import {
   BarChart, Bar, PieChart, Pie, Cell,
   ComposedChart, Line, Label,
-  XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend
+  XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer, Legend, Brush
 } from "recharts";
 
-import { fetchData } from "../services/api";
+import { fetchData, updateRow } from "../services/api";
 import FiltersBar from "../components/FiltersBar";
 import TideDrillTable from "../components/TideDrillTable";
 import MeetingTrend from "../components/MeetingTrend";
@@ -28,37 +36,38 @@ function toChartTheme(muiTheme) {
 }
 
 // ── KPI strip ──────────────────────────────────────────────────────────────
-function TideKPI({ rows }) {
-  // KPI 1: Tide (All applied cases) — every case where Tide was applied
-  const totalAllApplied = rows.reduce((s, r) => s + (Number(r["Tide (All applied cases)"]) || 0), 0);
-  // KPI 2: Done transactions — Tide OB (UPI - BC011+QRPPVV01)
-  const totalDone = rows.reduce((s, r) => s + (Number(r["Tide OB (UPI - BC011+QRPPVV01)"]) || 0), 0);
-  // KPI 3: Pending = All applied - Done
-  const totalPending = totalAllApplied - totalDone;
-  const totalIns = rows.reduce((s, r) => s + (Number(r["Tide Insurance"]) || 0), 0);
-  const totalMSME = rows.reduce((s, r) => s + (Number(r["Tide MSME"]) || 0), 0);
-  const totalPPI = rows.reduce((s, r) => s + (Number(r["Tide - PPI"]) || 0), 0);
+// Dynamically renders one KPI card per detected Tide column from the backend.
+// Falls back to a computed "Pending" card after "All Applied Cases" if present.
+function TideKPI({ rows, tideColumns }) {
+  const KPI_COLORS = ["#7c3aed","#14b8a6","#10b981","#f59e0b","#3b82f6","#ec4899","#0ea5e9","#ef4444","#f97316","#84cc16","#06b6d4","#8b5cf6"];
 
-  const totalCorrectRef = rows.reduce((s, r) => s + (Number(r["Tide OB(with correct ref. code)"]) || 0), 0);
+  // Build KPI list dynamically — only include columns that have data for the selected month
+  const kpis = tideColumns
+    .map((col, i) => ({
+      label: col,
+      value: rows.reduce((s, r) => s + (Number(r[col]) || 0), 0),
+      color: KPI_COLORS[i % KPI_COLORS.length],
+    }))
+    .filter((k) => k.value > 0);  // hide KPIs with no data for this month
 
-  const kpis = [
-    { label: "Tide (All Applied Cases)", value: totalAllApplied, color: "#7c3aed" },
-    { label: "Tide Correct Referral Code", value: totalCorrectRef, color: "#14b8a6" },
-    { label: "Done Transactions (UPI)", value: totalDone, color: "#10b981" },
-    { label: "Pending Transactions", value: totalPending < 0 ? 0 : totalPending, color: "#ef4444" },
-    { label: "Tide Insurance", value: totalIns, color: "#f59e0b" },
-    { label: "Tide MSME", value: totalMSME, color: "#3b82f6" },
-    { label: "Tide - PPI", value: totalPPI, color: "#ec4899" },
-    { label: "Tide OB with PP", value: rows.reduce((s, r) => s + (Number(r["Tide OB with PP"]) || 0), 0), color: "#0ea5e9" },
-    { label: "Tide Incorrect Referral Code", value: rows.reduce((s, r) => s + (Number(r["Tide - incorrect referral code"]) || 0), 0), color: "#f97316" },
-  ];
+  // Insert a computed "Pending" card if both key columns exist and have data
+  const allAppliedIdx = kpis.findIndex((k) => k.label === "Tide (All applied cases)");
+  const obWithPPIdx   = kpis.findIndex((k) => k.label === "Tide OB with PP");
+  if (allAppliedIdx !== -1 && obWithPPIdx !== -1) {
+    const applied = kpis[allAppliedIdx]?.value || 0;
+    const ob      = kpis[obWithPPIdx]?.value   || 0;
+    const pending = Math.max(0, applied - ob);
+    if (pending > 0) {
+      kpis.splice(obWithPPIdx + 1, 0, { label: "Pending (Not Onboarded)", value: pending, color: "#ef4444" });
+    }
+  }
 
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(9,1fr)", gap: 2, mb: 3 }}>
+    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 2, mb: 3 }}>
       {kpis.map((k) => (
         <Card key={k.label} variant="outlined">
           <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-            <Typography variant="body2" color="text.secondary">{k.label}</Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 11 }}>{k.label}</Typography>
             <Typography variant="h5" sx={{ color: k.color, fontWeight: 700 }}>{k.value}</Typography>
           </CardContent>
         </Card>
@@ -80,6 +89,105 @@ function ChartCard({ title, subtitle, children }) {
   );
 }
 
+// ── Inline editable table (no dialog, renders directly in page) ────────────
+const IDENTITY_COLS = ["Name", "TL", "Employee status"];
+
+function InlineEditTable({ rows, editableCols, onReload }) {
+  const [localRows, setLocalRows] = useState(() => rows.map((r) => ({ ...r })));
+  const [editing, setEditing]     = useState({});
+  const [saving, setSaving]       = useState({});
+  const [saved, setSaved]         = useState({});
+  const [errors, setErrors]       = useState({});
+
+  // Re-sync when rows change (month switch / filter change)
+  useEffect(() => { setLocalRows(rows.map((r) => ({ ...r }))); setEditing({}); setSaved({}); setErrors({}); }, [rows]);
+
+  const displayCols = [...IDENTITY_COLS, ...editableCols];
+  const k = (i, col) => `${i}_${col}`;
+
+  const handleSave = async (i, col, row) => {
+    const key = k(i, col);
+    const val = editing[key];
+    if (val === undefined || val === "") return;
+    setSaving((p) => ({ ...p, [key]: true }));
+    try {
+      const res = await updateRow(row["Email ID"], col, Number(val));
+      if (res.success) {
+        setLocalRows((prev) => { const n = [...prev]; n[i] = { ...n[i], [col]: Number(val) }; return n; });
+        setSaved((p) => ({ ...p, [key]: true }));
+        setTimeout(() => setSaved((p) => ({ ...p, [key]: false })), 2000);
+        setEditing((p) => { const n = { ...p }; delete n[key]; return n; });
+        onReload(); // refresh cache in background
+      } else {
+        setErrors((p) => ({ ...p, [key]: res.error || "Failed" }));
+      }
+    } catch { setErrors((p) => ({ ...p, [key]: "Network error" })); }
+    setSaving((p) => ({ ...p, [key]: false }));
+  };
+
+  if (localRows.length === 0) return <Typography variant="body2" color="text.secondary" sx={{ py: 2, textAlign: "center" }}>No records.</Typography>;
+
+  return (
+    <Box sx={{ overflowX: "auto", maxHeight: 420, overflowY: "auto", border: "1px solid", borderColor: "divider", borderRadius: 1 }}>
+      <Table size="small" stickyHeader>
+        <TableHead>
+          <TableRow>
+            <TableCell sx={{ fontWeight: 700, fontSize: 11 }}>#</TableCell>
+            {displayCols.map((c) => (
+              <TableCell key={c} sx={{ fontWeight: 700, fontSize: 11, whiteSpace: "nowrap", bgcolor: editableCols.includes(c) ? "action.hover" : undefined }}>
+                {c}
+                {editableCols.includes(c) && <Typography variant="caption" sx={{ display: "block", opacity: 0.45, fontSize: 9 }}>editable</Typography>}
+              </TableCell>
+            ))}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {localRows.map((row, i) => (
+            <TableRow key={i} hover>
+              <TableCell sx={{ fontSize: 11, color: "text.secondary" }}>{i + 1}</TableCell>
+              {displayCols.map((col) => {
+                const key = k(i, col);
+                const isEditable = editableCols.includes(col);
+                const isEditing  = editing[key] !== undefined;
+                return (
+                  <TableCell key={col} sx={{ whiteSpace: "nowrap", fontSize: 12 }}>
+                    {isEditable ? (
+                      isEditing ? (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5 }}>
+                          <TextField size="small" type="number" value={editing[key]}
+                            onChange={(e) => setEditing((p) => ({ ...p, [key]: e.target.value }))}
+                            sx={{ width: 72 }} autoFocus
+                            onKeyDown={(e) => { if (e.key === "Enter") handleSave(i, col, row); if (e.key === "Escape") setEditing((p) => { const n = { ...p }; delete n[key]; return n; }); }}
+                          />
+                          {saving[key]
+                            ? <CircularProgress size={14} />
+                            : <Button size="small" variant="contained" sx={{ minWidth: 0, px: 1, fontSize: 11 }} onClick={() => handleSave(i, col, row)}>✓</Button>}
+                          <Button size="small" sx={{ minWidth: 0, px: 0.5, fontSize: 11 }} onClick={() => setEditing((p) => { const n = { ...p }; delete n[key]; return n; })}>✕</Button>
+                          {errors[key] && <Typography color="error" variant="caption" sx={{ fontSize: 10 }}>{errors[key]}</Typography>}
+                        </Box>
+                      ) : (
+                        <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, cursor: "pointer" }}
+                          onClick={() => setEditing((p) => ({ ...p, [key]: row[col] ?? 0 }))}>
+                          {saved[key]
+                            ? <Chip label="✓" color="success" size="small" sx={{ height: 18, fontSize: 10 }} />
+                            : <strong>{row[col] ?? 0}</strong>}
+                          <span style={{ fontSize: 10, opacity: 0.35 }}>✏️</span>
+                        </Box>
+                      )
+                    ) : (
+                      String(row[col] ?? "—")
+                    )}
+                  </TableCell>
+                );
+              })}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Box>
+  );
+}
+
 export default function ProductDashboard() {
   const muiTheme = useTheme();
   const ct = useMemo(() => toChartTheme(muiTheme), [muiTheme]);
@@ -93,6 +201,18 @@ export default function ProductDashboard() {
   const [drill, setDrill] = useState({ open: false, title: "", rows: [], editableCols: undefined });
   const openDrill = (title, rows, editableCols) => setDrill({ open: true, title, rows, editableCols: editableCols || undefined });
   const closeDrill = () => setDrill((p) => ({ ...p, open: false }));
+
+  // ── Custom chart column selector state ──────────────────────────────────
+  const [selectedCols, setSelectedCols] = useState([]);
+  const [selectorOpen, setSelectorOpen] = useState(true);
+  const [chartZoomed, setChartZoomed] = useState(340);   // chart height in px, step zoom
+  const [chartFullscreen, setChartFullscreen] = useState(false); // dialog
+  const [showCustomTable, setShowCustomTable] = useState(false); // inline table below chart
+
+  const toggleCol = (col) =>
+    setSelectedCols((prev) =>
+      prev.includes(col) ? prev.filter((c) => c !== col) : [...prev, col]
+    );
 
   const load = async () => {
     const result = await fetchData();
@@ -270,16 +390,44 @@ export default function ProductDashboard() {
       });
   }, [rows, onboardedTideData]);
 
-  const productBreakdown = useMemo(() => [
-    { name: "All Applied Cases",    col: "Tide (All applied cases)",          value: rows.reduce((s, r) => s + (Number(r["Tide (All applied cases)"]) || 0), 0) },
-    { name: "Correct Ref. Code",    col: "Tide OB(with correct ref. code)",   value: rows.reduce((s, r) => s + (Number(r["Tide OB(with correct ref. code)"]) || 0), 0) },
-    { name: "UPI Done",             col: "Tide OB (UPI - BC011+QRPPVV01)",    value: rows.reduce((s, r) => s + (Number(r["Tide OB (UPI - BC011+QRPPVV01)"]) || 0), 0) },
-    { name: "OB with PP",           col: "Tide OB with PP",                   value: rows.reduce((s, r) => s + (Number(r["Tide OB with PP"]) || 0), 0) },
-    { name: "PPI",                  col: "Tide - PPI",                        value: rows.reduce((s, r) => s + (Number(r["Tide - PPI"]) || 0), 0) },
-    { name: "Insurance",            col: "Tide Insurance",                    value: rows.reduce((s, r) => s + (Number(r["Tide Insurance"]) || 0), 0) },
-    { name: "MSME",                 col: "Tide MSME",                         value: rows.reduce((s, r) => s + (Number(r["Tide MSME"]) || 0), 0) },
-    { name: "Incorrect Ref. Code",  col: "Tide - incorrect referral code",    value: rows.reduce((s, r) => s + (Number(r["Tide - incorrect referral code"]) || 0), 0), color: "#ef4444" },
-  ].filter((d) => d.value > 0), [rows]);
+  // ── Tide columns — derived from backend product_columns, filtered to Tide ──
+  const tideColumns = useMemo(() => {
+    const detected = productMeta.product_columns.filter((c) => c.toLowerCase().includes("tide"));
+    // If backend hasn't loaded yet, fall back to empty (KPI/charts will show 0)
+    return detected;
+  }, [productMeta.product_columns]);
+
+  // ── All product columns (all groups) for the column selector ─────────────
+  const allProductCols = useMemo(() => productMeta.product_columns, [productMeta.product_columns]);
+
+  // ── Custom chart data — by TL, only selected columns, current month rows ─
+  const customChartData = useMemo(() => {
+    if (selectedCols.length === 0) return [];
+    const map = {};
+    rows.forEach((r) => {
+      const tl = r["TL"] || "Unknown";
+      if (!map[tl]) { map[tl] = { tl }; selectedCols.forEach((c) => { map[tl][c] = 0; }); }
+      selectedCols.forEach((c) => { map[tl][c] += Number(r[c]) || 0; });
+    });
+    return Object.values(map)
+      .filter((d) => selectedCols.some((c) => d[c] > 0))
+      .sort((a, b) => {
+        const sumA = selectedCols.reduce((s, c) => s + (a[c] || 0), 0);
+        const sumB = selectedCols.reduce((s, c) => s + (b[c] || 0), 0);
+        return sumB - sumA;
+      });
+  }, [selectedCols, rows]);
+
+  // ── CHART 4 donut: dynamic product breakdown from detected Tide columns ───
+  const productBreakdown = useMemo(() => {
+    const DONUT_COLORS = ["#7c3aed","#14b8a6","#10b981","#f59e0b","#3b82f6","#ec4899","#0ea5e9","#ef4444","#f97316","#84cc16"];
+    return tideColumns.map((col, i) => ({
+      name:  col.replace(/^Tide\s*/i, "").trim() || col,  // strip "Tide " prefix for shorter labels
+      col,
+      value: rows.reduce((s, r) => s + (Number(r[col]) || 0), 0),
+      color: DONUT_COLORS[i % DONUT_COLORS.length],
+    })).filter((d) => d.value > 0);
+  }, [tideColumns, rows]);
 
   // ── CHART 5: Employees with pending transactions (OB > PP) ────────────────
   const pendingEmployees = useMemo(() => {
@@ -382,25 +530,31 @@ export default function ProductDashboard() {
       .slice(0, 15);
   }, [rows]);
 
+  // ── CHART 8b data: OB with PP + 5K QR Load + 4 Txns by Employee ─────────
+  const qrData = useMemo(() => {
+    return rows
+      .filter((r) => (Number(r["Tide OB with PP + 5K QR Load + 4 Txns"]) || 0) > 0)
+      .map((r) => ({
+        name: r["Name"] || "Unknown",
+        tl:   r["TL"]   || "Unknown",
+        qr:   Number(r["Tide OB with PP + 5K QR Load + 4 Txns"]) || 0,
+      }))
+      .sort((a, b) => b.qr - a.qr)
+      .slice(0, 15);
+  }, [rows]);
+
   // ── CHART 9 data: All Tide product columns — count + % of All Applied Cases ──
+  // Fully dynamic — uses tideColumns detected by backend, no hardcoding needed
   const allProductsData = useMemo(() => {
     const totalApplied = rows.reduce((s, r) => s + (Number(r["Tide (All applied cases)"]) || 0), 0);
-    const cols = [
-      { product: "All Applied",      col: "Tide (All applied cases)" },
-      { product: "Correct Ref Code", col: "Tide OB(with correct ref. code)" },
-      { product: "UPI Done",         col: "Tide OB (UPI - BC011+QRPPVV01)" },
-      { product: "OB with PP",       col: "Tide OB with PP" },
-      { product: "PPI",              col: "Tide - PPI" },
-      { product: "Insurance",        col: "Tide Insurance" },
-      { product: "MSME",             col: "Tide MSME" },
-      { product: "Incorrect Ref",    col: "Tide - incorrect referral code" },
-    ];
-    return cols.map(({ product, col }) => {
+    return tideColumns.map((col) => {
       const sales = rows.reduce((s, r) => s + (Number(r[col]) || 0), 0);
-      const pct = totalApplied > 0 ? Math.round((sales / totalApplied) * 100) : 0;
+      const pct   = totalApplied > 0 ? Math.round((sales / totalApplied) * 100) : 0;
+      // Short label: strip "Tide " prefix for readability on X-axis
+      const product = col.replace(/^Tide\s*/i, "").trim() || col;
       return { product, col, sales, pct };
     }).filter((d) => d.sales > 0);
-  }, [rows]);
+  }, [tideColumns, rows]);
 
   // ── CHART 10 data: Tide Onboarding Conversion Rate by Month ─────────────
   const conversionByMonthData = useMemo(() => {
@@ -446,7 +600,295 @@ export default function ProductDashboard() {
         monthOptions={monthOptions}
       />
 
-      <TideKPI rows={rows} />
+      <TideKPI rows={rows} tideColumns={tideColumns} />
+
+      {/* ── Custom Column Chart ─────────────────────────────────────────── */}
+      <Card variant="outlined" sx={{ mb: 3 }}>
+        <CardContent sx={{ pb: "16px !important" }}>
+
+          {/* Header */}
+          <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", mb: 1.5 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>Custom Column Chart</Typography>
+              <Typography variant="body2" color="text.secondary" sx={{ fontSize: 11, mt: 0.3 }}>
+                Pick any product columns below — chart updates instantly for the selected month
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center", flexShrink: 0, ml: 2 }}>
+              <Button
+                size="small" variant="outlined"
+                onClick={() => setSelectedCols(allProductCols.filter((c) => rows.some((r) => (Number(r[c]) || 0) > 0)))}
+                sx={{ fontSize: 11, textTransform: "none", borderRadius: 2 }}
+              >
+                Select All
+              </Button>
+              <Button
+                size="small" variant="outlined" color="error"
+                onClick={() => setSelectedCols([])}
+                sx={{ fontSize: 11, textTransform: "none", borderRadius: 2 }}
+              >
+                Clear
+              </Button>
+              <IconButton size="small" onClick={() => setSelectorOpen((p) => !p)} sx={{ ml: 0.5 }}>
+                {selectorOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+              </IconButton>
+            </Box>
+          </Box>
+
+          {/* Pill selector panel */}
+          <Collapse in={selectorOpen}>
+            <Box sx={{
+              border: "1px solid",
+              borderColor: "divider",
+              borderRadius: 2,
+              p: 2,
+              bgcolor: muiTheme.palette.mode === "dark" ? "rgba(255,255,255,0.03)" : "rgba(0,0,0,0.02)",
+            }}>
+              {Object.entries(productMeta.product_groups).map(([group, meta], gi) => {
+                const GROUP_COLORS = ["#7c3aed","#10b981","#3b82f6","#f59e0b","#ec4899","#14b8a6","#ef4444","#0ea5e9"];
+                const groupColor = GROUP_COLORS[gi % GROUP_COLORS.length];
+                const cols = meta.columns || [];
+                if (cols.length === 0) return null;
+                return (
+                  <Box key={group} sx={{ mb: gi < Object.keys(productMeta.product_groups).length - 1 ? 2 : 0 }}>
+                    {/* Group label with colored left border */}
+                    <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
+                      <Box sx={{ width: 3, height: 16, borderRadius: 1, bgcolor: groupColor, flexShrink: 0 }} />
+                      <Typography variant="caption" sx={{ fontWeight: 700, color: groupColor, textTransform: "uppercase", letterSpacing: 1.2, fontSize: 10 }}>
+                        {group}
+                      </Typography>
+                      <Typography variant="caption" sx={{ opacity: 0.4, fontSize: 10 }}>
+                        ({cols.filter((c) => rows.some((r) => (Number(r[c]) || 0) > 0)).length}/{cols.length} active)
+                      </Typography>
+                    </Box>
+                    {/* Pill chips */}
+                    <Box sx={{ display: "flex", flexWrap: "wrap", gap: 0.8 }}>
+                      {cols.map((col) => {
+                        const hasData = rows.some((r) => (Number(r[col]) || 0) > 0);
+                        const isSelected = selectedCols.includes(col);
+                        const total = rows.reduce((s, r) => s + (Number(r[col]) || 0), 0);
+                        return (
+                          <Chip
+                            key={col}
+                            label={
+                              <Box sx={{ display: "flex", alignItems: "center", gap: 0.6 }}>
+                                <span style={{ fontSize: 11 }}>{col}</span>
+                                {hasData && (
+                                  <Box component="span" sx={{
+                                    fontSize: 10, fontWeight: 700,
+                                    bgcolor: isSelected ? "rgba(255,255,255,0.25)" : (muiTheme.palette.mode === "dark" ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.08)"),
+                                    borderRadius: 1, px: 0.6, py: 0.1, lineHeight: 1.6,
+                                  }}>
+                                    {total}
+                                  </Box>
+                                )}
+                              </Box>
+                            }
+                            onClick={hasData ? () => toggleCol(col) : undefined}
+                            size="small"
+                            variant={isSelected ? "filled" : "outlined"}
+                            sx={{
+                              cursor: hasData ? "pointer" : "default",
+                              opacity: hasData ? 1 : 0.3,
+                              borderColor: isSelected ? groupColor : "divider",
+                              bgcolor: isSelected ? groupColor : "transparent",
+                              color: isSelected ? "#fff" : "text.primary",
+                              fontWeight: isSelected ? 600 : 400,
+                              transition: "all 0.15s ease",
+                              "&:hover": hasData ? {
+                                bgcolor: isSelected ? groupColor : `${groupColor}22`,
+                                borderColor: groupColor,
+                              } : {},
+                              "& .MuiChip-label": { px: 1 },
+                            }}
+                          />
+                        );
+                      })}
+                    </Box>
+                  </Box>
+                );
+              })}
+            </Box>
+          </Collapse>
+
+          {/* Selected summary + chart */}
+          {selectedCols.length > 0 && (
+            <Box sx={{ mt: 2 }}>
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1.5, flexWrap: "wrap" }}>
+                <Typography variant="body2" color="text.secondary" sx={{ fontSize: 11 }}>
+                  {selectedCols.length} column{selectedCols.length > 1 ? "s" : ""} selected:
+                </Typography>
+                {selectedCols.map((col, i) => (
+                  <Chip
+                    key={col}
+                    label={col}
+                    size="small"
+                    onDelete={() => toggleCol(col)}
+                    sx={{ fontSize: 10, bgcolor: COLORS[i % COLORS.length], color: "#fff", "& .MuiChip-deleteIcon": { color: "rgba(255,255,255,0.7)" } }}
+                  />
+                ))}
+              </Box>
+
+              {customChartData.length > 0 ? (
+                <>
+                  {/* Zoom controls */}
+                  <Box sx={{ display: "flex", alignItems: "center", gap: 0.5, mb: 1, justifyContent: "flex-end" }}>
+                    <Typography variant="caption" color="text.secondary" sx={{ mr: "auto", fontSize: 11 }}>
+                      Drag the brush below the chart to pan · use zoom buttons for height
+                    </Typography>
+                    <MuiTooltip title="Zoom out (shorter)">
+                      <span>
+                        <IconButton size="small" onClick={() => setChartZoomed((h) => Math.max(240, h - 120))} disabled={chartZoomed <= 240}>
+                          <ZoomOutIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </MuiTooltip>
+                    <Typography variant="caption" sx={{ minWidth: 36, textAlign: "center", opacity: 0.6 }}>
+                      {chartZoomed}px
+                    </Typography>
+                    <MuiTooltip title="Zoom in (taller)">
+                      <span>
+                        <IconButton size="small" onClick={() => setChartZoomed((h) => Math.min(900, h + 120))} disabled={chartZoomed >= 900}>
+                          <ZoomInIcon fontSize="small" />
+                        </IconButton>
+                      </span>
+                    </MuiTooltip>
+                    <MuiTooltip title={showCustomTable ? "Hide table" : "Show editable table"}>
+                      <IconButton size="small" onClick={() => setShowCustomTable((p) => !p)}
+                        sx={{ color: showCustomTable ? "primary.main" : "inherit" }}>
+                        <TableChartIcon fontSize="small" />
+                      </IconButton>
+                    </MuiTooltip>
+                    <MuiTooltip title="Fullscreen">
+                      <IconButton size="small" onClick={() => setChartFullscreen(true)}>
+                        <FullscreenIcon fontSize="small" />
+                      </IconButton>
+                    </MuiTooltip>
+                  </Box>
+
+                  <ResponsiveContainer width="100%" height={chartZoomed}>
+                    <BarChart
+                      data={customChartData}
+                      barCategoryGap="22%" barGap={3}
+                      margin={{ top: 10, right: 20, left: 0, bottom: 10 }}
+                      onClick={(e) => {
+                        if (!e?.activePayload) return;
+                        const tl = e.activePayload[0]?.payload?.tl;
+                        openDrill(`TL: ${tl} — Custom Selection`, rows.filter((r) => r["TL"] === tl), selectedCols);
+                      }}
+                    >
+                      <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" />
+                      <XAxis dataKey="tl" stroke={ct.text} tick={{ fontSize: 11 }} interval={0} angle={-20} textAnchor="end" height={55} />
+                      <YAxis stroke={ct.text} allowDecimals={false} />
+                      <Tooltip contentStyle={{ backgroundColor: ct.tooltipBg, color: ct.text, border: "none" }} />
+                      <Legend verticalAlign="top" />
+                      {selectedCols.map((col, i) => (
+                        <Bar key={col} dataKey={col} name={col} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }}
+                          label={{ position: "top", fontSize: 10, fill: ct.text, formatter: (v) => v > 0 ? v : "" }}
+                        />
+                      ))}
+                      {/* Brush for drag-to-pan/zoom along X axis */}
+                      <Brush
+                        dataKey="tl"
+                        height={22}
+                        stroke={ct.grid}
+                        fill={muiTheme.palette.background.paper}
+                        travellerWidth={8}
+                        startIndex={0}
+                        endIndex={Math.min(customChartData.length - 1, 9)}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+
+                  {/* Inline editable table — shown when table icon is toggled */}
+                  <Collapse in={showCustomTable}>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle2" sx={{ mb: 1, fontWeight: 700 }}>
+                      Editable Table — {selectedCols.length} column{selectedCols.length > 1 ? "s" : ""} · {rows.filter((r) => selectedCols.some((c) => (Number(r[c]) || 0) > 0)).length} employees
+                    </Typography>
+                    {/* Reuse TideDrillTable in inline mode via a wrapper */}
+                    <InlineEditTable
+                      rows={rows.filter((r) => selectedCols.some((c) => (Number(r[c]) || 0) > 0))
+                        .sort((a, b) => {
+                          const sumA = selectedCols.reduce((s, c) => s + (Number(a[c]) || 0), 0);
+                          const sumB = selectedCols.reduce((s, c) => s + (Number(b[c]) || 0), 0);
+                          return sumB - sumA;
+                        })}
+                      editableCols={selectedCols}
+                      theme={ct}
+                      onReload={load}
+                    />
+                  </Collapse>
+                </>
+              ) : (
+                <Box sx={{ textAlign: "center", py: 4, opacity: 0.5 }}>
+                  <Typography variant="body2">No data for selected columns in this month.</Typography>
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {selectedCols.length === 0 && !selectorOpen && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, textAlign: "center", opacity: 0.6 }}>
+              Expand the panel and select columns to generate a chart.
+            </Typography>
+          )}
+          {selectedCols.length === 0 && selectorOpen && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1.5, textAlign: "center", opacity: 0.6 }}>
+              Click any pill above to add it to the chart.
+            </Typography>
+          )}
+
+        </CardContent>
+      </Card>
+
+      {/* Fullscreen chart dialog */}
+      <Dialog open={chartFullscreen} onClose={() => setChartFullscreen(false)} maxWidth="xl" fullWidth
+        PaperProps={{ sx: { height: "90vh", display: "flex", flexDirection: "column" } }}
+      >
+        <DialogTitle sx={{ display: "flex", alignItems: "center", justifyContent: "space-between", pb: 1 }}>
+          <Box>
+            <Typography variant="h6">Custom Column Chart — Fullscreen</Typography>
+            <Typography variant="caption" color="text.secondary">
+              {selectedCols.length} column{selectedCols.length > 1 ? "s" : ""} · drag the brush to pan
+            </Typography>
+          </Box>
+          <IconButton onClick={() => setChartFullscreen(false)}><FullscreenExitIcon /></IconButton>
+        </DialogTitle>
+        <DialogContent sx={{ flex: 1, display: "flex", flexDirection: "column", pt: 0 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={customChartData}
+              barCategoryGap="22%" barGap={3}
+              margin={{ top: 10, right: 30, left: 10, bottom: 10 }}
+              onClick={(e) => {
+                if (!e?.activePayload) return;
+                const tl = e.activePayload[0]?.payload?.tl;
+                setChartFullscreen(false);
+                openDrill(`TL: ${tl} — Custom Selection`, rows.filter((r) => r["TL"] === tl), selectedCols);
+              }}
+            >
+              <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" />
+              <XAxis dataKey="tl" stroke={ct.text} tick={{ fontSize: 12 }} interval={0} angle={-20} textAnchor="end" height={60} />
+              <YAxis stroke={ct.text} allowDecimals={false} />
+              <Tooltip contentStyle={{ backgroundColor: ct.tooltipBg, color: ct.text, border: "none" }} />
+              <Legend verticalAlign="top" />
+              {selectedCols.map((col, i) => (
+                <Bar key={col} dataKey={col} name={col} fill={COLORS[i % COLORS.length]} radius={[4, 4, 0, 0]} style={{ cursor: "pointer" }}
+                  label={{ position: "top", fontSize: 11, fill: ct.text, formatter: (v) => v > 0 ? v : "" }}
+                />
+              ))}
+              <Brush
+                dataKey="tl"
+                height={24}
+                stroke={ct.grid}
+                fill={muiTheme.palette.background.paper}
+                travellerWidth={10}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </DialogContent>
+      </Dialog>
 
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3 }}>
 
@@ -577,7 +1019,7 @@ export default function ProductDashboard() {
             <MuiTooltip title="View full table for all Tide columns">
               <IconButton
                 size="small"
-                onClick={() => openDrill("Tide Product Mix — All Employees", rows.filter((r) => productBreakdown.some((d) => (Number(r[d.col]) || 0) > 0)), productBreakdown.map((d) => d.col))}
+                onClick={() => openDrill("Tide Product Mix — All Employees", rows.filter((r) => productBreakdown.some((d) => (Number(r[d.col]) || 0) > 0)), tideColumns)}
                 sx={{ position: "absolute", top: -8, right: 0, zIndex: 1, opacity: 0.7, "&:hover": { opacity: 1 } }}
               >
                 <TableChartIcon fontSize="small" />
@@ -814,6 +1256,54 @@ export default function ProductDashboard() {
           </Box>
         </ChartCard>
 
+        {/* CHART 8b — OB with PP + 5K QR Load + 4 Txns by Employee */}
+        <ChartCard
+          title="Tide OB with PP + 5K QR Load + 4 Txns — Top 15"
+          subtitle="Employees with highest count for this combined condition — click a bar to drill down"
+        >
+          <Box sx={{ position: "relative" }}>
+            <MuiTooltip title="View full table">
+              <IconButton
+                size="small"
+                onClick={() => openDrill(
+                  "OB with PP + 5K QR Load + 4 Txns — All Employees",
+                  rows.filter((r) => (Number(r["Tide OB with PP + 5K QR Load + 4 Txns"]) || 0) > 0)
+                      .sort((a, b) => (Number(b["Tide OB with PP + 5K QR Load + 4 Txns"]) || 0) - (Number(a["Tide OB with PP + 5K QR Load + 4 Txns"]) || 0)),
+                  ["Tide OB with PP + 5K QR Load + 4 Txns"]
+                )}
+                sx={{ position: "absolute", top: -8, right: 0, zIndex: 1, opacity: 0.7, "&:hover": { opacity: 1 } }}
+              >
+                <TableChartIcon fontSize="small" />
+              </IconButton>
+            </MuiTooltip>
+            <ResponsiveContainer width="100%" height={360}>
+              <BarChart
+                data={qrData}
+                layout="vertical"
+                margin={{ left: 10, right: 40 }}
+                onClick={(e) => {
+                  if (!e?.activePayload) return;
+                  const name = e.activePayload[0]?.payload?.name;
+                  openDrill(`Employee: ${name} — QR Load`, rows.filter((r) => r["Name"] === name), ["Tide OB with PP + 5K QR Load + 4 Txns"]);
+                }}
+              >
+                <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" horizontal={false} />
+                <XAxis type="number" stroke={ct.text} allowDecimals={false} />
+                <YAxis dataKey="name" type="category" stroke={ct.text} width={120} tick={{ fontSize: 11 }} />
+                <Tooltip
+                  contentStyle={tooltipStyle}
+                  formatter={(val, _, props) => [`${val} (TL: ${props.payload.tl})`, "OB+PP+5K QR+4Txns"]}
+                />
+                <Bar dataKey="qr" name="OB+PP+5K QR+4Txns" radius={[0, 6, 6, 0]} style={{ cursor: "pointer" }}>
+                  {qrData.map((_, i) => (
+                    <Cell key={i} fill={`hsl(${88 + i * 6}, 65%, ${50 - i * 1.5}%)`} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </Box>
+        </ChartCard>
+
         {/* CHART 9 — All Tide Products Breakdown with % */}
         <ChartCard
           title="All Tide Products — Volume & Share"
@@ -930,6 +1420,7 @@ export default function ProductDashboard() {
         title={drill.title}
         rows={drill.rows}
         editableCols={drill.editableCols}
+        dynamicCols={tideColumns}
       />
     </Box>
   );
