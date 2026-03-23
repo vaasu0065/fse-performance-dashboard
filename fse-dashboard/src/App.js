@@ -18,7 +18,7 @@ import DarkModeIcon from "@mui/icons-material/DarkMode";
 
 function App() {
 
-  const [mode, setMode] = useState("light");
+  const [mode, setMode] = useState("dark");
   const [page, setPage] = useState("overview");
 
   const theme = createTheme({

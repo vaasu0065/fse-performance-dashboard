@@ -36,43 +36,153 @@ function toChartTheme(muiTheme) {
 }
 
 // ── KPI strip ──────────────────────────────────────────────────────────────
-// Dynamically renders one KPI card per detected Tide column from the backend.
-// Falls back to a computed "Pending" card after "All Applied Cases" if present.
-function TideKPI({ rows, tideColumns }) {
+function TideKPI({ rows, tideColumns, ct, openDrill }) {
   const KPI_COLORS = ["#7c3aed","#14b8a6","#10b981","#f59e0b","#3b82f6","#ec4899","#0ea5e9","#ef4444","#f97316","#84cc16","#06b6d4","#8b5cf6"];
 
-  // Build KPI list dynamically — only include columns that have data for the selected month
-  const kpis = tideColumns
-    .map((col, i) => ({
-      label: col,
-      value: rows.reduce((s, r) => s + (Number(r[col]) || 0), 0),
-      color: KPI_COLORS[i % KPI_COLORS.length],
-    }))
-    .filter((k) => k.value > 0);  // hide KPIs with no data for this month
+  const [kpiModal, setKpiModal] = useState(null); // { label, col, color, chartData }
 
-  // Insert a computed "Pending" card if both key columns exist and have data
+  const kpis = tideColumns.map((col, i) => ({
+    label: col,
+    col,
+    value: rows.reduce((s, r) => s + (Number(r[col]) || 0), 0),
+    color: KPI_COLORS[i % KPI_COLORS.length],
+  }));
+
   const allAppliedIdx = kpis.findIndex((k) => k.label === "Tide (All applied cases)");
   const obWithPPIdx   = kpis.findIndex((k) => k.label === "Tide OB with PP");
   if (allAppliedIdx !== -1 && obWithPPIdx !== -1) {
     const applied = kpis[allAppliedIdx]?.value || 0;
     const ob      = kpis[obWithPPIdx]?.value   || 0;
-    const pending = Math.max(0, applied - ob);
-    if (pending > 0) {
-      kpis.splice(obWithPPIdx + 1, 0, { label: "Pending (Not Onboarded)", value: pending, color: "#ef4444" });
-    }
+    kpis.splice(obWithPPIdx + 1, 0, {
+      label: "Pending (Not Onboarded)", col: null,
+      value: Math.max(0, applied - ob), color: "#ef4444"
+    });
   }
 
+  const totalPoints = rows.reduce((s, r) => s + (Number(r["Total_Points"]) || 0), 0);
+  kpis.push({ label: "Total Points (All Products)", col: "Total_Points", value: Math.round(totalPoints * 10) / 10, color: "#6366f1" });
+
+  const openKpiModal = (k) => {
+    if (!k.col) return; // Pending is computed, no raw col
+    const chartData = rows
+      .filter((r) => (Number(r[k.col]) || 0) > 0)
+      .map((r) => ({ name: r["Name"] || "Unknown", tl: r["TL"] || "", value: Number(r[k.col]) || 0 }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 20);
+    setKpiModal({ ...k, chartData });
+  };
+
+  const isDark = ct ? ct.tooltipBg === "#1f1f1f" : false;
+
   return (
-    <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 2, mb: 3 }}>
-      {kpis.map((k) => (
-        <Card key={k.label} variant="outlined">
-          <CardContent sx={{ textAlign: "center", py: 1.5 }}>
-            <Typography variant="body2" color="text.secondary" sx={{ fontSize: 11 }}>{k.label}</Typography>
-            <Typography variant="h5" sx={{ color: k.color, fontWeight: 700 }}>{k.value}</Typography>
-          </CardContent>
-        </Card>
-      ))}
-    </Box>
+    <>
+      <Box sx={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 2, mb: 3 }}>
+        {kpis.map((k) => (
+          <Card key={k.label} variant="outlined"
+            onClick={() => openKpiModal(k)}
+            sx={{
+              opacity: k.value === 0 ? 0.5 : 1,
+              transition: "all 0.2s",
+              cursor: k.col ? "pointer" : "default",
+              borderColor: "divider",
+              "&:hover": k.col ? {
+                borderColor: k.color,
+                transform: "translateY(-2px)",
+                boxShadow: `0 4px 20px ${k.color}33`,
+              } : {},
+            }}>
+            <CardContent sx={{ textAlign: "center", py: 1.5, px: 1.5 }}>
+              <Typography variant="body2" color="text.secondary"
+                sx={{ fontSize: 10, mb: 0.5, lineHeight: 1.3, minHeight: 28 }}>
+                {k.label}
+              </Typography>
+              <Typography variant="h5"
+                sx={{ color: k.value === 0 ? "text.disabled" : k.color, fontWeight: 800, fontSize: "1.6rem" }}>
+                {k.value}
+              </Typography>
+              {k.col && k.value > 0 && (
+                <Typography variant="caption" sx={{ opacity: 0.4, fontSize: 9 }}>click to explore</Typography>
+              )}
+              {k.value === 0 && (
+                <Typography variant="caption" sx={{ opacity: 0.35, fontSize: 9 }}>no data this month</Typography>
+              )}
+            </CardContent>
+          </Card>
+        ))}
+      </Box>
+
+      {/* KPI drill-down modal */}
+      {kpiModal && (
+        <Dialog open={!!kpiModal} onClose={() => setKpiModal(null)} maxWidth="md" fullWidth
+          PaperProps={{ sx: { borderRadius: 3, overflow: "hidden" } }}>
+          {/* Colored header */}
+          <Box sx={{
+            background: `linear-gradient(135deg, ${kpiModal.color}cc, ${kpiModal.color}66)`,
+            px: 3, py: 2.5, display: "flex", alignItems: "center", justifyContent: "space-between"
+          }}>
+            <Box>
+              <Typography variant="h6" sx={{ color: "#fff", fontWeight: 700 }}>{kpiModal.label}</Typography>
+              <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.75)", fontSize: 12, mt: 0.3 }}>
+                Top {kpiModal.chartData.length} employees · {kpiModal.value} total
+              </Typography>
+            </Box>
+            <Box sx={{ display: "flex", gap: 1, alignItems: "center" }}>
+              <MuiTooltip title="View full editable table">
+                <IconButton size="small"
+                  onClick={() => { setKpiModal(null); openDrill(`${kpiModal.label} — All Employees`, rows.filter((r) => (Number(r[kpiModal.col]) || 0) > 0).sort((a, b) => (Number(b[kpiModal.col]) || 0) - (Number(a[kpiModal.col]) || 0)), [kpiModal.col]); }}
+                  sx={{ color: "#fff", bgcolor: "rgba(255,255,255,0.15)", "&:hover": { bgcolor: "rgba(255,255,255,0.25)" } }}>
+                  <TableChartIcon fontSize="small" />
+                </IconButton>
+              </MuiTooltip>
+              <IconButton size="small" onClick={() => setKpiModal(null)}
+                sx={{ color: "#fff", bgcolor: "rgba(255,255,255,0.15)", "&:hover": { bgcolor: "rgba(255,255,255,0.25)" } }}>
+                <FullscreenExitIcon fontSize="small" />
+              </IconButton>
+            </Box>
+          </Box>
+
+          <DialogContent sx={{ p: 3, bgcolor: "background.paper" }}>
+            {kpiModal.chartData.length === 0 ? (
+              <Typography color="text.secondary" sx={{ textAlign: "center", py: 4 }}>No employee data found.</Typography>
+            ) : (
+              <ResponsiveContainer width="100%" height={Math.max(300, kpiModal.chartData.length * 28)}>
+                <BarChart
+                  layout="vertical"
+                  data={kpiModal.chartData}
+                  margin={{ left: 10, right: 60, top: 10, bottom: 10 }}
+                >
+                  <defs>
+                    <linearGradient id="kpiBarGrad" x1="0" y1="0" x2="1" y2="0">
+                      <stop offset="0%" stopColor={kpiModal.color} stopOpacity={0.9} />
+                      <stop offset="100%" stopColor={kpiModal.color} stopOpacity={0.4} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid stroke={isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.08)"} horizontal={false} />
+                  <XAxis type="number" stroke={ct?.text} allowDecimals={false} tick={{ fontSize: 11 }} />
+                  <YAxis dataKey="name" type="category" stroke={ct?.text} width={140} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: ct?.tooltipBg, color: ct?.text, border: "none", borderRadius: 8 }}
+                    formatter={(val, _, props) => [`${val}  (TL: ${props.payload.tl})`, kpiModal.label]}
+                    cursor={{ fill: `${kpiModal.color}18` }}
+                  />
+                  <Bar dataKey="value" name={kpiModal.label} fill="url(#kpiBarGrad)"
+                    radius={[0, 8, 8, 0]}
+                    label={{ position: "right", fontSize: 11, fill: ct?.text, fontWeight: 700,
+                      formatter: (v) => v > 0 ? v : "" }}
+                  >
+                    {kpiModal.chartData.map((_, i) => (
+                      <Cell key={i}
+                        fill={`hsla(${parseInt(kpiModal.color.slice(1), 16) % 360}, 70%, ${60 - i * 1.5}%, ${1 - i * 0.025})`}
+                      />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
+    </>
   );
 }
 
@@ -556,7 +666,35 @@ export default function ProductDashboard() {
     }).filter((d) => d.sales > 0);
   }, [tideColumns, rows]);
 
-  // ── CHART 10 data: Tide Onboarding Conversion Rate by Month ─────────────
+  // ── Points Breakdown data — contribution per product to Total_Points ────
+  // Uses exact same formula as feature_engineering.py points_formula
+  const POINTS_FORMULA = [
+    { col: "Tide OB with PP",       weight: 2,   label: "Tide OB with PP",       color: "#7c3aed" },
+    { col: "Tide Insurance",         weight: 1,   label: "Tide Insurance",         color: "#f59e0b" },
+    { col: "Tide MSME",              weight: 0.3, label: "Tide MSME (×0.3)",       color: "#3b82f6" },
+    { col: "Vehicle Points Earned",  weight: 1,   label: "Vehicle Points Earned",  color: "#10b981" },
+    { col: "Aditya Birla",           weight: 1,   label: "Aditya Birla",           color: "#ec4899" },
+    { col: "Airtel Payments Bank",   weight: 1,   label: "Airtel Payments Bank",   color: "#0ea5e9" },
+    { col: "Tide",                   weight: 1,   label: "Tide (base)",            color: "#14b8a6" },
+    { col: "Hero FinCorp",           weight: 1,   label: "Hero FinCorp",           color: "#f97316" },
+  ];
+
+  const pointsBreakdownData = useMemo(() => {
+    return POINTS_FORMULA
+      .map(({ col, weight, label, color }) => {
+        const units  = rows.reduce((s, r) => s + (Number(r[col]) || 0), 0);
+        const points = Math.round(units * weight * 10) / 10;
+        const pct    = 0; // filled below
+        return { label, col, weight, units, points, color };
+      })
+      .filter((d) => d.units > 0)
+      .sort((a, b) => b.points - a.points)
+      .map((d, _, arr) => {
+        const total = arr.reduce((s, x) => s + x.points, 0);
+        return { ...d, pct: total > 0 ? Math.round((d.points / total) * 100) : 0 };
+      });
+  }, [rows]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const conversionByMonthData = useMemo(() => {
     const map = {};
     (Array.isArray(raw) ? raw : []).forEach((r) => {
@@ -600,7 +738,7 @@ export default function ProductDashboard() {
         monthOptions={monthOptions}
       />
 
-      <TideKPI rows={rows} tideColumns={tideColumns} />
+      <TideKPI rows={rows} tideColumns={tideColumns} ct={ct} openDrill={openDrill} />
 
       {/* ── Custom Column Chart ─────────────────────────────────────────── */}
       <Card variant="outlined" sx={{ mb: 3 }}>
@@ -890,9 +1028,10 @@ export default function ProductDashboard() {
         </DialogContent>
       </Dialog>
 
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3 }}>
+      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3, gridAutoFlow: "dense" }}>
 
         {/* CHART 1 — All Applied Cases vs Correct Referral Code by TL */}
+        {appliedVsRefData.length > 0 && (
         <ChartCard
           title="Tide: All Applied Cases vs Correct Referral Code by TL"
           subtitle="Compare total applied cases against those with correct referral codes per Team Leader"
@@ -927,8 +1066,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 2 — Onboarded Tide */}
+        {onboardedTideData.length > 0 && (
         <ChartCard
           title="Onboarded Tide"
           subtitle="All Applied Cases vs OB with PP per TL — line shows gap (not yet onboarded)"
@@ -968,8 +1109,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 3 — UPI vs PPI Transaction Breakdown by Employee */}
+        {upiVsPpiData.length > 0 && (
         <ChartCard
           title="UPI vs PPI Transactions by Employee"
           subtitle="Side-by-side comparison — UPI (BC011+QRPPVV01) and PPI are independent payment methods"
@@ -1009,13 +1152,22 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 4 — Tide Product Mix (enhanced donut) */}
+        {productBreakdown.length > 0 && (
         <ChartCard
           title="Tide Product Mix"
           subtitle="All Tide transaction types — click a slice to drill into employees"
         >
           <Box sx={{ position: "relative" }}>
+            {/* Total count — top-left corner */}
+            <Box sx={{ position: "absolute", top: 4, left: 4, zIndex: 2, lineHeight: 1.2 }}>
+              <Typography variant="caption" sx={{ color: ct.text, opacity: 0.55, display: "block", fontSize: 11 }}>Total</Typography>
+              <Typography variant="h6" sx={{ color: ct.text, fontWeight: 700, fontSize: 22, lineHeight: 1 }}>
+                {productBreakdown.reduce((s, d) => s + d.value, 0)}
+              </Typography>
+            </Box>
             <MuiTooltip title="View full table for all Tide columns">
               <IconButton
                 size="small"
@@ -1046,24 +1198,6 @@ export default function ProductDashboard() {
                   {productBreakdown.map((d, i) => (
                     <Cell key={i} fill={d.color || COLORS[i % COLORS.length]} stroke={ct.card} strokeWidth={2} />
                   ))}
-                  <Label
-                    content={({ viewBox }) => {
-                      const { cx, cy } = viewBox;
-                      const total = productBreakdown.reduce((s, d) => s + d.value, 0);
-                      return (
-                        <g>
-                          <text x={cx-70} y={cy - 10} textAnchor="middle" dominantBaseline="middle"
-                            style={{ fontSize: 24, fontWeight: 700, fill: ct.text }}>
-                            {total}
-                          </text>
-                          <text x={cx-70} y={cy + 14} textAnchor="middle" dominantBaseline="middle"
-                            style={{ fontSize: 12, fill: ct.text, opacity: 0.55 }}>
-                            Total
-                          </text>
-                        </g>
-                      );
-                    }}
-                  />
                 </Pie>
                 <Tooltip
                   contentStyle={tooltipStyle}
@@ -1083,8 +1217,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 5 — Correct vs Incorrect Referral Code by TL */}
+        {refCodeData.length > 0 && (
         <ChartCard
           title="Referral Code Quality by Team Leader"
           subtitle="Correct vs incorrect referral codes per TL — line shows correct code success rate %"
@@ -1126,8 +1262,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 6 — Correct vs Incorrect Referral Code by Employee */}
+        {refCodeByEmpData.length > 0 && (
         <ChartCard
           title="Referral Code Quality by Employee"
           subtitle="Top 20 employees — correct vs incorrect referral codes. Line = correct code success rate %"
@@ -1169,8 +1307,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 7 — Tide MSME by Employee */}
+        {msmData.length > 0 && (
         <ChartCard
           title="Tide MSME — Top 15 Employees"
           subtitle="Employees with highest Tide MSME count — horizontal bars for easy name reading"
@@ -1212,8 +1352,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 8 (new) — Tide Insurance by Employee */}
+        {insData.length > 0 && (
         <ChartCard
           title="Tide Insurance — Top 15 Employees"
           subtitle="Employees with highest Tide Insurance count — click a bar to drill down"
@@ -1255,8 +1397,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 8b — OB with PP + 5K QR Load + 4 Txns by Employee */}
+        {qrData.length > 0 && (
         <ChartCard
           title="Tide OB with PP + 5K QR Load + 4 Txns — Top 15"
           subtitle="Employees with highest count for this combined condition — click a bar to drill down"
@@ -1303,8 +1447,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 9 — All Tide Products Breakdown with % */}
+        {allProductsData.length > 0 && (
         <ChartCard
           title="All Tide Products — Volume & Share"
           subtitle="Every Tide product column: total count + % share of all applied cases. Click a bar to drill down."
@@ -1358,8 +1504,10 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
 
         {/* CHART 10 — Tide Onboarding Conversion Rate by Month */}
+        {conversionByMonthData.length > 0 && (
         <ChartCard
           title="Tide Onboarding Conversion Rate by Month"
           subtitle="All Applied Cases vs OB with PP — conversion rate % across Jan, Feb, Mar. Shows how many applied cases got fully onboarded each month."
@@ -1406,6 +1554,134 @@ export default function ProductDashboard() {
             </ResponsiveContainer>
           </Box>
         </ChartCard>
+        )}
+
+        {/* ── Points Analysis Charts ──────────────────────────────────────── */}
+        {pointsBreakdownData.length > 0 && <>
+        <ChartCard
+            title="Points Contribution by Product"
+            subtitle="Which product drives the most points — based on the exact points formula"
+          >
+            <Box sx={{ position: "relative" }}>
+              {/* Total pts — top-left corner */}
+              <Box sx={{ position: "absolute", top: 4, left: 4, zIndex: 2, lineHeight: 1.2 }}>
+                <Typography variant="caption" sx={{ color: ct.text, opacity: 0.55, display: "block", fontSize: 11 }}>Total Pts</Typography>
+                <Typography variant="h6" sx={{ color: ct.text, fontWeight: 700, fontSize: 22, lineHeight: 1 }}>
+                  {pointsBreakdownData.reduce((s, d) => s + d.points, 0)}
+                </Typography>
+              </Box>
+              <MuiTooltip title="View breakdown table">
+                <IconButton size="small"
+                  onClick={() => openDrill("Points Breakdown — All Employees",
+                    rows.filter((r) => POINTS_FORMULA.some(({ col }) => (Number(r[col]) || 0) > 0))
+                        .sort((a, b) => (Number(b["Total_Points"]) || 0) - (Number(a["Total_Points"]) || 0)),
+                    POINTS_FORMULA.map(({ col }) => col).filter((c) => rows.some((r) => (Number(r[c]) || 0) > 0))
+                  )}
+                  sx={{ position: "absolute", top: -8, right: 0, zIndex: 1, opacity: 0.7, "&:hover": { opacity: 1 } }}>
+                  <TableChartIcon fontSize="small" />
+                </IconButton>
+              </MuiTooltip>
+              <ResponsiveContainer width="100%" height={420}>
+                <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
+                  <Pie
+                    data={pointsBreakdownData}
+                    dataKey="points"
+                    nameKey="label"
+                    cx="50%"
+                    cy="45%"
+                    innerRadius={80}
+                    outerRadius={145}
+                    paddingAngle={3}
+                    label={({ pct }) => `${pct}%`}
+                    labelLine={{ stroke: ct.text, strokeWidth: 1 }}
+                    onClick={(entry) => {
+                      if (entry?.col) openDrill(`${entry.label} — Employee Breakdown`,
+                        rows.filter((r) => (Number(r[entry.col]) || 0) > 0)
+                            .sort((a, b) => (Number(b[entry.col]) || 0) - (Number(a[entry.col]) || 0)),
+                        POINTS_FORMULA.map(({ col }) => col).filter((c) => rows.some((r) => (Number(r[c]) || 0) > 0))
+                      );
+                    }}
+                    style={{ cursor: "pointer" }}
+                  >
+                    {pointsBreakdownData.map((d, i) => (
+                      <Cell key={i} fill={d.color} stroke={ct.card} strokeWidth={2} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    formatter={(val, name, props) => [
+                      `${val} pts (${props.payload.pct}%) · ${props.payload.units} units × ${props.payload.weight}`,
+                      name
+                    ]}
+                  />
+                  <Legend
+                    layout="horizontal"
+                    align="center"
+                    verticalAlign="bottom"
+                    formatter={(value, entry) => (
+                      <span style={{ color: ct.text, fontSize: 11 }}>
+                        {value}
+                        <strong style={{ color: entry.color, marginLeft: 5 }}>{entry.payload.points}pts</strong>
+                        <span style={{ opacity: 0.5, fontSize: 10, marginLeft: 3 }}>({entry.payload.pct}%)</span>
+                      </span>
+                    )}
+                  />
+                </PieChart>
+              </ResponsiveContainer>
+            </Box>
+          </ChartCard>
+
+        <ChartCard
+            title="Top Employees by Total Points"
+            subtitle="Ranked by Total_Points score for the selected month — click a bar to drill down"
+          >
+            <Box sx={{ position: "relative" }}>
+              <MuiTooltip title="View full table">
+                <IconButton size="small"
+                  onClick={() => openDrill("Top Employees — Points Breakdown",
+                    rows.filter((r) => (Number(r["Total_Points"]) || 0) > 0)
+                        .sort((a, b) => (Number(b["Total_Points"]) || 0) - (Number(a["Total_Points"]) || 0)),
+                    POINTS_FORMULA.map(({ col }) => col).filter((c) => rows.some((r) => (Number(r[c]) || 0) > 0))
+                  )}
+                  sx={{ position: "absolute", top: -8, right: 0, zIndex: 1, opacity: 0.7, "&:hover": { opacity: 1 } }}>
+                  <TableChartIcon fontSize="small" />
+                </IconButton>
+              </MuiTooltip>
+              <ResponsiveContainer width="100%" height={420}>
+                <BarChart
+                  layout="vertical"
+                  data={[...rows]
+                    .filter((r) => (Number(r["Total_Points"]) || 0) > 0)
+                    .sort((a, b) => (Number(b["Total_Points"]) || 0) - (Number(a["Total_Points"]) || 0))
+                    .slice(0, 15)
+                    .map((r) => ({ name: r["Name"] || "Unknown", tl: r["TL"] || "", pts: Math.round((Number(r["Total_Points"]) || 0) * 10) / 10 }))}
+                  margin={{ left: 10, right: 40, top: 10, bottom: 10 }}
+                  onClick={(e) => {
+                    if (!e?.activePayload) return;
+                    const name = e.activePayload[0]?.payload?.name;
+                    openDrill(`${name} — Points Breakdown`,
+                      rows.filter((r) => r["Name"] === name),
+                      POINTS_FORMULA.map(({ col }) => col).filter((c) => rows.some((r) => r["Name"] === name && (Number(r[c]) || 0) > 0))
+                    );
+                  }}
+                >
+                  <CartesianGrid stroke={ct.grid} strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" stroke={ct.text} allowDecimals={false} />
+                  <YAxis dataKey="name" type="category" stroke={ct.text} width={130} tick={{ fontSize: 11 }} />
+                  <Tooltip
+                    contentStyle={tooltipStyle}
+                    formatter={(val, _, props) => [`${val} pts (TL: ${props.payload.tl})`, "Total Points"]}
+                  />
+                  <Bar dataKey="pts" name="Total Points" radius={[0, 6, 6, 0]} style={{ cursor: "pointer" }}>
+                    {[...Array(15)].map((_, i) => (
+                      <Cell key={i} fill={`hsl(${260 - i * 8}, 70%, ${58 - i * 1.5}%)`} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </Box>
+          </ChartCard>
+        </>}
 
       </Box>
 
