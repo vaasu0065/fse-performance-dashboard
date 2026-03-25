@@ -442,6 +442,36 @@ export default function ProductDashboard() {
   const openDrill = (title, rows, editableCols) => setDrill({ open: true, title, rows, editableCols: editableCols || undefined });
   const closeDrill = () => setDrill((p) => ({ ...p, open: false }));
 
+  // employee profile popup state (custom chart bar click)
+  const [empProfile, setEmpProfile] = useState(null); // { name, email, tl, status, employment, kpis: [{label, value, color}] }
+
+  const openEmpProfile = (employeeName) => {
+    // Aggregate all rows for this employee across the current filtered data
+    const empRows = rows.filter((r) => r["Name"] === employeeName);
+    if (empRows.length === 0) return;
+    const ref = empRows[0];
+    const allCols = allProductCols.length > 0 ? allProductCols : selectedCols;
+    const KPI_COLORS = ["#7c3aed","#10b981","#3b82f6","#f59e0b","#14b8a6","#ec4899","#0ea5e9","#ef4444","#f97316","#84cc16","#06b6d4","#8b5cf6"];
+    const kpis = allCols
+      .map((col, i) => ({
+        label: col,
+        value: empRows.reduce((s, r) => s + (Number(r[col]) || 0), 0),
+        color: KPI_COLORS[i % KPI_COLORS.length],
+      }))
+      .filter((k) => k.value > 0)
+      .sort((a, b) => b.value - a.value);
+    const totalPoints = empRows.reduce((s, r) => s + (Number(r["Total_Points"]) || 0), 0);
+    setEmpProfile({
+      name: employeeName,
+      email: ref["Email ID"] || "",
+      tl: ref["TL"] || "",
+      status: ref["Employee status"] || "",
+      employment: ref["Employment type"] || "",
+      totalPoints: Math.round(totalPoints * 10) / 10,
+      kpis,
+    });
+  };
+
   // ── Custom chart column selector state ──────────────────────────────────
   const [selectedCols, setSelectedCols] = useState([]);
   const [selectorOpen, setSelectorOpen] = useState(true);
@@ -1105,7 +1135,7 @@ export default function ProductDashboard() {
                         if (groupBy === "tl") {
                           openDrill(`TL: ${d.key} — Custom Selection`, rows.filter((r) => r["TL"] === d.key), selectedCols);
                         } else {
-                          openDrill(`${d.key} — Custom Selection`, rows.filter((r) => r["Name"] === d.key), selectedCols);
+                          openEmpProfile(d.key);
                         }
                       }}
                     >
@@ -1937,6 +1967,67 @@ export default function ProductDashboard() {
         editableCols={drill.editableCols}
         dynamicCols={tideColumns}
       />
+
+      {/* Employee Profile Dialog — opens on bar click in custom chart */}
+      {empProfile && (
+        <Dialog open={!!empProfile} onClose={() => setEmpProfile(null)} maxWidth="sm" fullWidth
+          PaperProps={{ sx: { borderRadius: 3, overflow: "hidden" } }}>
+          {/* Header */}
+          <Box sx={{ background: "linear-gradient(135deg,#7c3aedcc,#7c3aed66)", px: 3, py: 2.5 }}>
+            <Box sx={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between" }}>
+              <Box>
+                <Typography variant="h6" sx={{ color: "#fff", fontWeight: 700 }}>{empProfile.name}</Typography>
+                <Typography variant="body2" sx={{ color: "rgba(255,255,255,0.75)", fontSize: 12 }}>{empProfile.email}</Typography>
+              </Box>
+              <IconButton size="small" onClick={() => setEmpProfile(null)} sx={{ color: "#fff", bgcolor: "rgba(255,255,255,0.15)" }}>
+                <FullscreenExitIcon fontSize="small" />
+              </IconButton>
+            </Box>
+            {/* Meta chips */}
+            <Box sx={{ display: "flex", gap: 1, mt: 1.5, flexWrap: "wrap" }}>
+              {empProfile.tl && (
+                <Box sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "#fff", borderRadius: 5, px: 1.5, py: 0.3, fontSize: 11, fontWeight: 600 }}>
+                  TL: {empProfile.tl}
+                </Box>
+              )}
+              {empProfile.status && (
+                <Box sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "#fff", borderRadius: 5, px: 1.5, py: 0.3, fontSize: 11 }}>
+                  {empProfile.status}
+                </Box>
+              )}
+              {empProfile.employment && (
+                <Box sx={{ bgcolor: "rgba(255,255,255,0.2)", color: "#fff", borderRadius: 5, px: 1.5, py: 0.3, fontSize: 11 }}>
+                  {empProfile.employment}
+                </Box>
+              )}
+              <Box sx={{ bgcolor: "#10b981", color: "#fff", borderRadius: 5, px: 1.5, py: 0.3, fontSize: 11, fontWeight: 700 }}>
+                {empProfile.totalPoints} pts
+              </Box>
+            </Box>
+          </Box>
+
+          <DialogContent sx={{ p: 3 }}>
+            {empProfile.kpis.length === 0 ? (
+              <Typography color="text.secondary" sx={{ textAlign: "center", py: 3 }}>No product data for this employee.</Typography>
+            ) : (
+              <Box sx={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 1.5 }}>
+                {empProfile.kpis.map((k) => (
+                  <Card key={k.label} variant="outlined" sx={{ borderRadius: 2 }}>
+                    <CardContent sx={{ py: 1.5, px: 2, "&:last-child": { pb: 1.5 } }}>
+                      <Typography variant="caption" color="text.secondary" sx={{ fontSize: 10, lineHeight: 1.3, display: "block" }}>
+                        {k.label}
+                      </Typography>
+                      <Typography variant="h6" sx={{ color: k.color, fontWeight: 800, fontSize: "1.4rem", mt: 0.3 }}>
+                        {k.value}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                ))}
+              </Box>
+            )}
+          </DialogContent>
+        </Dialog>
+      )}
     </Box>
   );
 }
