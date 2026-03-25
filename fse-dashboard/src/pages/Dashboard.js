@@ -46,10 +46,10 @@ function Dashboard() {
     const isDark = muiTheme.palette.mode === "dark";
     return {
       background: muiTheme.palette.background.default,
-      card: muiTheme.palette.background.paper,
+      card: isDark ? "#1e2d3d" : "#ffffff",
       text: muiTheme.palette.text.primary,
-      grid: isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.12)",
-      tooltipBg: isDark ? "#1f1f1f" : "#ffffff"
+      grid: isDark ? "rgba(255,255,255,0.08)" : "rgba(26,92,56,0.15)",
+      tooltipBg: isDark ? "#1e2d3d" : "#ffffff",
     };
   }, [muiTheme.palette]);
 
@@ -140,7 +140,7 @@ function Dashboard() {
 
   return (
     <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: "background.default", minHeight: "100vh" }}>
-      <Typography variant="h4" sx={{ mb: 2 }}>FSE Performance Dashboard</Typography>
+      <Typography variant="h4" sx={{ mb: 2 }} >FSE</Typography>
 
       <FiltersBar
         data={raw}
@@ -151,7 +151,7 @@ function Dashboard() {
         monthOptions={monthOptions}
       />
 
-      <KPI data={filteredData} />
+      <KPI data={filteredData} theme={chartTheme} />
 
       {/* PIE charts */}
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3, mt: 2 }}>
@@ -159,20 +159,15 @@ function Dashboard() {
         <EmploymentTypePie data={filteredData} theme={chartTheme} />
       </Box>
 
-      {/* TL + Top Employees */}
+      {/* Top Employees + Meeting Trend */}
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3, mt: 3 }}>
-        <TLChart data={filteredData} theme={chartTheme} />
         <TopEmployees data={filteredData} theme={chartTheme} />
-      </Box>
-
-      {/* Meeting Trend + Product Chart */}
-      <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3, mt: 3 }}>
         <MeetingTrend data={filteredData} theme={chartTheme} />
-        <ProductChart data={filteredData} theme={chartTheme} productMeta={productMeta} />
       </Box>
 
-      {/* NEW: Product Group Breakdown + Month-over-Month */}
+      {/* Product Chart + Product Group Breakdown */}
       <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", md: "1fr 1fr" }, gap: 3, mt: 3 }}>
+        <ProductChart data={filteredData} theme={chartTheme} productMeta={productMeta} />
 
         <ChartCard
           title="Product Group Breakdown"
@@ -191,12 +186,15 @@ function Dashboard() {
             </BarChart>
           </ResponsiveContainer>
         </ChartCard>
+      </Box>
 
+      {/* Month-over-Month — full width */}
+      <Box sx={{ mt: 3 }}>
         <ChartCard
           title="Month-over-Month Overview"
           subtitle="Meetings, product sales and headcount across all months"
         >
-          <ResponsiveContainer width="100%" height={300}>
+          <ResponsiveContainer width="100%" height={320}>
             <ComposedChart data={momData} margin={{ top: 10, right: 40, left: 0, bottom: 10 }}>
               <CartesianGrid stroke={chartTheme.grid} strokeDasharray="3 3" />
               <XAxis dataKey="month" stroke={chartTheme.text} tick={{ fontSize: 12, fontWeight: 600 }} />
@@ -215,7 +213,11 @@ function Dashboard() {
             </ComposedChart>
           </ResponsiveContainer>
         </ChartCard>
+      </Box>
 
+      {/* TL Performance — full width at bottom */}
+      <Box sx={{ mt: 3 }}>
+        <TLChart data={filteredData} theme={chartTheme} />
       </Box>
 
       <EmployeeStatusTable

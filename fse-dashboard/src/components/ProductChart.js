@@ -1,64 +1,134 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  CartesianGrid,
-  ResponsiveContainer
+  Card, CardContent, Typography, Box, IconButton, Tooltip,
+  Dialog, DialogTitle, DialogContent, Table, TableHead, TableRow,
+  TableCell, TableBody, TableContainer, Paper
+} from "@mui/material";
+import TableChartIcon from "@mui/icons-material/TableChart";
+import CloseIcon from "@mui/icons-material/Close";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip,
+  CartesianGrid, ResponsiveContainer, Cell
 } from "recharts";
 
-function ProductChart({ data, theme, productMeta }) {
-  const columns =
-    productMeta?.product_columns && productMeta.product_columns.length > 0
-      ? productMeta.product_columns
-      : [];
+const COLORS = ["#7c3aed","#3b82f6","#f59e0b","#10b981","#14b8a6","#ec4899","#0ea5e9","#ef4444","#f97316","#84cc16","#06b6d4","#8b5cf6"];
 
-  const productData = useMemo(() => {
-    return columns
-      .map((col) => {
-        let total = 0;
-        data.forEach((row) => { total += Number(row?.[col] || 0); });
-        return { product: col, sales: total };
-      })
-      .sort((a, b) => b.sales - a.sales)
-      .slice(0, 12);
-  }, [data, columns]);
+function ProductChart({ data, theme, productMeta }) {
+  const [open, setOpen] = useState(false);
+
+  const columns = productMeta?.product_columns?.length > 0
+    ? productMeta.product_columns
+    : [];
+
+  const chartData = useMemo(() =>
+    columns.map((col) => ({
+      product: col,
+      sales: data.reduce((s, r) => s + (Number(r[col]) || 0), 0),
+    }))
+    .filter((d) => d.sales > 0)
+    .sort((a, b) => b.sales - a.sales)
+    .slice(0, 12),
+  [data, columns]);
+
+  const tooltipStyle = {
+    backgroundColor: theme?.tooltipBg || "#fff",
+    color: theme?.text || "#000",
+    border: "none",
+    borderRadius: 8
+  };
 
   return (
+    <>
+      {/* CARD */}
+      <Card variant="outlined" sx={{ height: "100%" }}>
+        <CardContent>
 
-    <div style={{ marginBottom: "40px" }}>
+          <Box sx={{ display: "flex", justifyContent: "space-between", mb: 1 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 700 }}>
+                Product Sales
+              </Typography>
+              <Typography variant="body2" sx={{ fontSize: 11, color: "text.secondary" }}>
+                Top columns by total sales
+              </Typography>
+            </Box>
 
-      <h2 style={{ color: theme?.text }}>Product Sales (Top Columns)</h2>
+            <Tooltip title="View full table">
+              <IconButton size="small" onClick={() => setOpen(true)}>
+                <TableChartIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Box>
 
-      <ResponsiveContainer width="100%" height={350}>
+          {/* CHART */}
+          <ResponsiveContainer width="100%" height={300}>
+            <BarChart data={chartData} margin={{ top: 8, right: 16, bottom: 50 }}>
+              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                dataKey="product"
+                angle={-25}
+                textAnchor="end"
+                height={60}
+                tick={{ fontSize: 10 }}
+              />
+              <YAxis />
+              <RTooltip contentStyle={tooltipStyle} />
 
-        <BarChart data={productData}>
+              <Bar dataKey="sales" radius={[6, 6, 0, 0]}>
+                {chartData.map((_, i) => (
+                  <Cell key={i} fill={COLORS[i % COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
 
-          <CartesianGrid stroke={theme?.grid} strokeDasharray="3 3" />
+        </CardContent>
+      </Card>
 
-          <XAxis dataKey="product" stroke={theme?.text} />
+      {/* DIALOG */}
+      <Dialog open={open} onClose={() => setOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ display: "flex", justifyContent: "space-between" }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            Product Sales — All Columns
+          </Typography>
 
-          <YAxis stroke={theme?.text} />
+          <IconButton onClick={() => setOpen(false)}>
+            <CloseIcon />
+          </IconButton>
+        </DialogTitle>
 
-          <Tooltip
-            contentStyle={{
-              backgroundColor: theme?.tooltipBg,
-              color: theme?.text
-            }}
-          />
+        <DialogContent>
 
-          <Bar dataKey="sales" fill="#6f42c1" />
+          <TableContainer component={Paper} sx={{ maxHeight: 420 }}>
+            <Table size="small" stickyHeader>
 
-        </BarChart>
+              <TableHead>
+                <TableRow>
+                  <TableCell>#</TableCell>
+                  <TableCell>Product Column</TableCell>
+                  <TableCell>Total Sales</TableCell>
+                </TableRow>
+              </TableHead>
 
-      </ResponsiveContainer>
+              <TableBody>
+                {chartData.map((r, i) => (
+                  <TableRow key={i} hover>
+                    <TableCell>{i + 1}</TableCell>
+                    <TableCell>{r.product}</TableCell>
+                    <TableCell sx={{ fontWeight: 700 }}>
+                      {r.sales}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
 
-    </div>
+            </Table>
+          </TableContainer>
 
+        </DialogContent>
+      </Dialog>
+    </>
   );
-
 }
 
 export default ProductChart;

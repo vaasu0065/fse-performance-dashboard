@@ -6,7 +6,7 @@ import {
 } from "@mui/material";
 import { updateRow } from "../services/api";
 
-const IDENTITY_COLS = ["Name", "TL", "Employee status", "Offer letter status", "Current month Status"];
+const IDENTITY_COLS = ["Name", "Email ID", "TL", "Employee status", "Offer letter status", "Current month Status"];
 
 const DEFAULT_EDITABLE = [
   "Tide OB", "Tide OB with PP", "Tide Insurance", "Tide MSME",

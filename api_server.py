@@ -30,6 +30,19 @@ app.add_middleware(
 )
 
 # -----------------------------
+# ONBOARD COLUMN CONFIG — update here when monthly condition changes
+# -----------------------------
+ONBOARD_COLUMN_BY_MONTH = {
+    "January 2026":  "Tide OB with PP",
+    "February 2026": "Tide OB with PP",
+    "March 2026":    "Tide OB with PP + 5K QR Load + 4 Txns",
+    # Add future months here, e.g.:
+    # "April 2026": "Tide OB with PP",
+}
+DEFAULT_ONBOARD_COLUMN = "Tide OB with PP"  # fallback for unmapped months
+
+
+# -----------------------------
 # CACHE VARIABLES
 # -----------------------------
 cached_data = None
@@ -109,7 +122,9 @@ def _refresh_cache():
             "total_meetings": float(total_meetings),
             "product_columns": product_columns,
             "product_totals": product_totals,
-            "product_groups": product_groups
+            "product_groups": product_groups,
+            "onboard_column_by_month": ONBOARD_COLUMN_BY_MONTH,
+            "default_onboard_column": DEFAULT_ONBOARD_COLUMN,
         }
         last_update = time.time()
     print(f"[Cache] Refreshed — {len(cached_data['raw'])} rows")
