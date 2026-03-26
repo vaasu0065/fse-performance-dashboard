@@ -30,6 +30,32 @@ app.add_middleware(
 )
 
 # -----------------------------
+# DATA SOURCE TOGGLE
+# "google_sheet" — fetch from Google Sheets (current default)
+# "database"     — fetch from database (plug in your DB loader below when ready)
+# -----------------------------
+DATA_SOURCE = "google_sheet"
+
+def load_from_database() -> pd.DataFrame:
+    """
+    TODO: Replace this stub with your actual database loader when ready.
+    Should return a pandas DataFrame with the same column schema as the Google Sheet.
+
+    Example (SQLAlchemy):
+        from sqlalchemy import create_engine
+        engine = create_engine("postgresql://user:pass@host/dbname")
+        return pd.read_sql("SELECT * FROM fse_data", engine)
+    """
+    raise NotImplementedError("Database loader not yet implemented. Set DATA_SOURCE = 'google_sheet' or implement this function.")
+
+def load_raw_data() -> pd.DataFrame:
+    """Single entry point — returns raw DataFrame based on DATA_SOURCE toggle."""
+    if DATA_SOURCE == "database":
+        return load_from_database()
+    else:
+        return load_sheet()  # default: Google Sheets
+
+# -----------------------------
 # ONBOARD COLUMN CONFIG — update here when monthly condition changes
 # -----------------------------
 ONBOARD_COLUMN_BY_MONTH = {
@@ -67,7 +93,7 @@ def get_clean_data():
 
     try:
 
-        df = load_sheet()
+        df = load_raw_data()
 
         df = clean_duplicate_columns(df)
 
@@ -125,6 +151,7 @@ def _refresh_cache():
             "product_groups": product_groups,
             "onboard_column_by_month": ONBOARD_COLUMN_BY_MONTH,
             "default_onboard_column": DEFAULT_ONBOARD_COLUMN,
+            "data_source": DATA_SOURCE,
         }
         last_update = time.time()
     print(f"[Cache] Refreshed — {len(cached_data['raw'])} rows")

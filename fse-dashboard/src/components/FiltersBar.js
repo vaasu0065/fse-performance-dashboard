@@ -60,9 +60,9 @@ export default function FiltersBar({
     setFilters((p) => ({
       ...p,
       employee: name,
-      tl: option.tl || p.tl,
-      status: option.status || p.status,
-      employment: option.employment || p.employment,
+      tl: option.tl || "",
+      status: option.status || "",
+      employment: option.employment || "",
     }));
   };
 
@@ -72,11 +72,13 @@ export default function FiltersBar({
       return;
     }
     const options = employeeMeta[value] || [];
-    // If TL is already selected, no need to disambiguate — just apply directly
-    if (filters.tl || options.length <= 1) {
+    // If TL was manually pre-selected, match that TL's record — no popup needed
+    if (filters.tl) {
       applyEmployee(value, options.find((o) => o.tl === filters.tl) || options[0] || {});
-    } else {
+    } else if (options.length > 1) {
       setDisambig({ name: value, options });
+    } else {
+      applyEmployee(value, options[0] || {});
     }
   };
 
